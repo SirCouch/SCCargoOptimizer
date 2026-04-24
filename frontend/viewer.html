@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Cargo Viewer</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: rgba(22,27,34,0.92);
+    --border: #30363d; --fg: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --warn: #d29922; --bad: #f85149; --good: #3fb950;
+  }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg);
+               font-family: -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  #canvas-wrap { position: absolute; inset: 0; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+           backdrop-filter: blur(4px); }
+  #hud { position: absolute; top: 10px; left: 10px; padding: 10px 14px;
+         font-size: 12px; line-height: 1.6; max-width: 220px; pointer-events: none; }
+  #hud .k { color: var(--muted); }
+  #hud .v { color: var(--fg); font-weight: 600; }
+  #hud .accent { color: var(--accent); }
+  #legend { position: absolute; top: 10px; right: 10px; padding: 10px 14px;
+            font-size: 12px; min-width: 110px; pointer-events: none; }
+  #legend .title { color: var(--muted); font-size: 10px; text-transform: uppercase;
+                   letter-spacing: 0.6px; margin-bottom: 6px; }
+  .sw { display: inline-block; width: 14px; height: 14px; margin-right: 8px;
+        vertical-align: middle; border-radius: 2px; border: 1px solid #555; }
+  #controls { position: absolute; bottom: 10px; left: 10px; padding: 8px 12px;
+              font-size: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+              max-width: calc(100% - 320px); }
+  #info { position: absolute; bottom: 10px; right: 10px; padding: 10px 14px;
+          font-size: 12px; max-width: 280px; display: none; }
+  #info .ttl { color: var(--accent); font-weight: 600; margin-bottom: 4px; font-size: 13px; }
+  #info .row { display: flex; justify-content: space-between; gap: 12px; }
+  #info .k { color: var(--muted); }
+  #info .badge { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 10px;
+                 text-transform: uppercase; letter-spacing: 0.5px; margin-left: 6px; }
+  #info .badge.placed { background: #033a16; color: var(--good); }
+  #info .badge.unplaced { background: #3a1a02; color: var(--warn); }
+  #info .badge.outside { background: #3a0e10; color: var(--bad); }
+  button { background: #21262d; color: var(--fg); border: 1px solid var(--border);
+           padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
+           font-family: inherit; }
+  button:hover { background: #30363d; border-color: #6e7681; }
+  button.active { background: var(--accent); color: white; border-color: var(--accent); }
+  label { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+  input[type=checkbox] { accent-color: var(--accent); }
+  input[type=range] { width: 80px; accent-color: var(--accent); }
+  .sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+</style>
+</head>
+<body>
+<div id="canvas-wrap"></div>
+<div id="hud" class="panel">Awaiting packing result…</div>
+<div id="legend" class="panel"></div>
+<div id="info" class="panel"></div>
+<div id="err" style="display:none; position:absolute; inset:14px; background:rgba(139,0,0,0.92);
+     padding:14px; border-radius:6px; font-size:12px; white-space:pre-wrap; overflow:auto;
+     border:1px solid #ef476f; z-index:99;"></div>
+
+<script>
+  window.__rendererReady = false;
+  function showErr(msg) {
+    const el = document.getElementById('err');
+    el.style.display = 'block';
+    el.textContent = (el.textContent ? el.textContent + '\n\n' : '') + msg;
+    console.error(msg);
+  }
+  window.addEventListener('error', (e) => showErr('[error] ' + (e.message || e) + (e.filename ? ' @ ' + e.filename + ':' + e.lineno : '')));
+  window.addEventListener('unhandledrejection', (e) => showErr('[promise] ' + (e.reason && e.reason.message ? e.reason.message : e.reason)));
+</script>
+
+<div id="controls" class="panel">
+  <button onclick="resetView()">Reset View</button>
+  <button onclick="resetPositions()">Reset Positions</button>
+  <span class="sep"></span>
+  <label><input type="checkbox" id="snapToggle" checked> Snap</label>
+  <label><input type="checkbox" id="dragToggle" checked> Drag</label>
+  <span class="sep"></span>
+  <label><input type="checkbox" id="transparentToggle" checked onchange="toggleTransparent()"> Transparent</label>
+  <label><input type="checkbox" id="gridToggle" onchange="toggleGrid()"> Grid lines</label>
+  <span class="sep"></span>
+  <label>Explode <input type="range" id="explodeSlider" min="0" max="100" value="0" oninput="setExplode(this.value)"></label>
+  <span class="sep"></span>
+  <span style="color:var(--muted); font-size:11px;">drag = slide · shift+drag = lift · collisions revert</span>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const PRIORITY_COLORS = {
+  1: 0xef476f, 2: 0xffd166, 3: 0x06d6a0, 4: 0x118ab2, 5: 0x8338ec
+};
+const GRID_GAP = 2.0;
+const STAGING_GAP = 4.0;     // gap between grids and the unplaced staging zone
+const STAGING_DEPTH = 2.0;   // depth of the staging row
+
+let scene, camera, renderer, orbit;
+let dragState = null;  // { record, startPos, plane, offset, mode, lastValid, hasMoved }
+let itemMeshes = []; // {mesh, edge, base, gridCenter, info, unplaced, originalPos}
+let gridMeshes = []; // visuals for grid bounds (wireframe, label, floor)
+let gridHelpers = []; // overlaid integer grid lines
+let workspaceFloor = null;
+let stagingZone = null;
+let raycaster, mouse;
+let selectedMesh = null;
+let originalMaterial = null;
+let defaultCam = { pos: new THREE.Vector3(20, 20, 25), target: new THREE.Vector3(0, 0, 0) };
+let explodeFactor = 0;
+let lastGrids = [];          // [[dims, name], ...]
+let lastGridOrigins = {};    // grid_idx -> x offset
+let lastGridCenters = {};    // grid_idx -> Vector3
+
+function init() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0d1117);
+
+  const wrap = document.getElementById('canvas-wrap');
+  camera = new THREE.PerspectiveCamera(50, wrap.clientWidth / wrap.clientHeight, 0.1, 2000);
+  camera.position.copy(defaultCam.pos);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  wrap.appendChild(renderer.domElement);
+
+  orbit = new OrbitControls(camera, renderer.domElement);
+  orbit.enableDamping = true;
+  orbit.dampingFactor = 0.08;
+
+  // Custom pointer drag: horizontal-plane by default, Shift+drag for vertical lift.
+  // Use capture phase so we run before OrbitControls (which lives on the same canvas).
+  renderer.domElement.addEventListener('pointerdown', onPointerDown, true);
+  renderer.domElement.addEventListener('pointermove', onPointerHover);
+  window.addEventListener('pointermove', onPointerDrag);
+  window.addEventListener('pointerup', onPointerUp);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  const key = new THREE.DirectionalLight(0xffffff, 0.9);
+  key.position.set(30, 50, 30); scene.add(key);
+  const fill = new THREE.DirectionalLight(0x88aaff, 0.35);
+  fill.position.set(-30, 20, -30); scene.add(fill);
+
+  scene.add(new THREE.AxesHelper(3));
+
+  raycaster = new THREE.Raycaster();
+  mouse = new THREE.Vector2();
+  renderer.domElement.addEventListener('click', onCanvasClick);
+
+  window.addEventListener('resize', onResize);
+  animate();
+}
+
+function onResize() {
+  const wrap = document.getElementById('canvas-wrap');
+  camera.aspect = wrap.clientWidth / wrap.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  orbit.update();
+  renderer.render(scene, camera);
+}
+
+function clearScene() {
+  for (const r of itemMeshes) {
+    scene.remove(r.mesh);
+    if (r.edge) scene.remove(r.edge);
+  }
+  for (const m of gridMeshes) scene.remove(m);
+  for (const m of gridHelpers) scene.remove(m);
+  if (workspaceFloor) { scene.remove(workspaceFloor); workspaceFloor = null; }
+  if (stagingZone) { scene.remove(stagingZone); stagingZone = null; }
+  itemMeshes = []; gridMeshes = []; gridHelpers = [];
+  selectedMesh = null;
+  originalMaterial = null;
+  document.getElementById('info').style.display = 'none';
+}
+
+function priorityColor(p) {
+  return PRIORITY_COLORS[p] || 0xcccccc;
+}
+
+window.loadPacking = function(data) {
+  clearScene();
+
+  const grids = data.ship_grids || [];
+  const placements = data.placements || [];
+  const unplaced = data.unplaced_items || [];
+  lastGrids = grids;
+
+  // Lay out grids along X with gap
+  const gridOrigins = [];
+  let cursor = 0; let totalW = 0;
+  for (const g of grids) {
+    gridOrigins.push(cursor);
+    cursor += g[0][0] + GRID_GAP;
+    totalW = cursor;
+  }
+  const shift = -(totalW - GRID_GAP) / 2;
+  const gridCenterByIdx = {};
+  const gridNameToIdx = {};
+  lastGridOrigins = {};
+  grids.forEach((g, i) => {
+    gridOrigins[i] += shift;
+    lastGridOrigins[i] = gridOrigins[i];
+    gridNameToIdx[g[1]] = i;
+  });
+
+  let maxH = 0;
+  let maxL = 0;
+  grids.forEach((g, i) => {
+    const [w, l, h] = g[0];
+    maxH = Math.max(maxH, h);
+    maxL = Math.max(maxL, l);
+    const ox = gridOrigins[i];
+    gridCenterByIdx[i] = new THREE.Vector3(ox + w/2, h/2, l/2);
+
+    // Wireframe box
+    const geo = new THREE.BoxGeometry(w, h, l);
+    const edges = new THREE.EdgesGeometry(geo);
+    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x6e7681 }));
+    line.position.set(ox + w/2, h/2, l/2);
+    scene.add(line); gridMeshes.push(line);
+
+    // Floor tint (slightly highlighted to show valid drop zone)
+    const floorGeo = new THREE.PlaneGeometry(w, l);
+    const floorMat = new THREE.MeshBasicMaterial({ color: 0x1e2a36, side: THREE.DoubleSide,
+                                                   transparent: true, opacity: 0.85 });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(ox + w/2, 0.001, l/2);
+    scene.add(floor); gridMeshes.push(floor);
+
+    // 1-unit grid overlay (initially hidden)
+    const overlay = new THREE.GridHelper(Math.max(w, l), Math.max(w, l), 0x30363d, 0x21262d);
+    overlay.position.set(ox + w/2, 0.005, l/2);
+    overlay.visible = document.getElementById('gridToggle').checked;
+    scene.add(overlay); gridHelpers.push(overlay);
+
+    // Label
+    const sprite = makeTextSprite(g[1], 0xe6edf3);
+    sprite.position.set(ox + w/2, h + 1.0, l/2);
+    scene.add(sprite); gridMeshes.push(sprite);
+  });
+  lastGridCenters = gridCenterByIdx;
+
+  // Workspace floor — extends well beyond grids so user has room to drag
+  const wsW = Math.max(totalW, 16) + 30;
+  const wsL = Math.max(maxL, 12) + 12;
+  const wsGeo = new THREE.PlaneGeometry(wsW, wsL);
+  const wsMat = new THREE.MeshBasicMaterial({ color: 0x161b22, side: THREE.DoubleSide,
+                                              transparent: true, opacity: 0.5 });
+  workspaceFloor = new THREE.Mesh(wsGeo, wsMat);
+  workspaceFloor.rotation.x = -Math.PI / 2;
+  workspaceFloor.position.set(0, -0.01, maxL / 2);
+  scene.add(workspaceFloor);
+
+  // Unplaced staging zone (right of last grid)
+  const stagingX = (totalW > 0 ? totalW + shift + STAGING_GAP : 4);
+  const stagingW = Math.max(8, unplaced.length * 1.5 + 4);
+  const stagingGeo = new THREE.PlaneGeometry(stagingW, STAGING_DEPTH * 2);
+  const stagingMat = new THREE.MeshBasicMaterial({ color: 0x3a1a02, side: THREE.DoubleSide,
+                                                   transparent: true, opacity: 0.45 });
+  stagingZone = new THREE.Mesh(stagingGeo, stagingMat);
+  stagingZone.rotation.x = -Math.PI / 2;
+  stagingZone.position.set(stagingX + stagingW / 2, 0.002, maxL / 2);
+  scene.add(stagingZone);
+
+  // Staging label
+  if (unplaced.length > 0) {
+    const stagingLabel = makeTextSprite(`Unplaced (${unplaced.length}) — drag to place`, 0xd29922);
+    stagingLabel.scale.set(8, 1.2, 1);
+    stagingLabel.position.set(stagingX + stagingW / 2, 0.5, maxL / 2 - STAGING_DEPTH - 0.5);
+    scene.add(stagingLabel);
+    gridMeshes.push(stagingLabel);
+  }
+
+  // Place "placed" items
+  for (const p of placements) {
+    const [px, py, pz] = p.position;
+    const [dw, dl, dh] = p.dimensions;
+    const gidx = (p.grid_idx !== undefined) ? p.grid_idx : (gridNameToIdx[p.grid_name] ?? 0);
+    const ox = lastGridOrigins[gidx] || 0;
+    const basePos = new THREE.Vector3(ox + px + dw/2, pz + dh/2, py + dl/2);
+    addItemMesh({
+      dims: [dw, dl, dh], color: priorityColor(p.priority),
+      position: basePos, gridCenter: gridCenterByIdx[gidx].clone(),
+      info: {
+        scu: p.scu_type, priority: p.priority, dims: p.dimensions,
+        position: p.position, grid: p.grid_name,
+      },
+      unplaced: false,
+    });
+  }
+
+  // Spawn unplaced items in staging zone
+  let spawnX = stagingX + 1;
+  const spawnZ = maxL / 2;
+  for (const u of unplaced) {
+    const dims = u.dims || scuDimsFromType(u.scu_type) || [1, 1, 1];
+    const [w_dim, l_dim, h_dim] = dims;
+    const basePos = new THREE.Vector3(spawnX + w_dim/2, h_dim/2, spawnZ + l_dim/2);
+    addItemMesh({
+      dims: [w_dim, l_dim, h_dim], color: priorityColor(u.priority),
+      position: basePos, gridCenter: basePos.clone(),
+      info: {
+        scu: u.scu_type, priority: u.priority, dims,
+        position: [0, 0, 0], grid: 'Unplaced',
+      },
+      unplaced: true,
+    });
+    spawnX += w_dim + 1.0;
+  }
+
+  // (custom pointer drag handles arbitrary itemMeshes)
+
+  // HUD
+  const m = data.metrics || {};
+  const sr = ((m.success_rate || 0) * 100).toFixed(1);
+  const ut = ((m.volume_utilization || 0) * 100).toFixed(1);
+  document.getElementById('hud').innerHTML =
+    `<div><span class="k">Placed</span> · <span class="v accent">${placements.length}</span></div>
+     <div><span class="k">Success</span> · <span class="v">${sr}%</span></div>
+     <div><span class="k">Utilization</span> · <span class="v">${ut}%</span></div>
+     <div><span class="k">Unplaced</span> · <span class="v">${unplaced.length}</span></div>
+     <div><span class="k">Grids</span> · <span class="v">${grids.length}</span></div>`;
+
+  // Legend
+  const used = new Set([...placements.map(p => p.priority), ...unplaced.map(u => u.priority)]);
+  const sortedP = [...used].sort();
+  const lines = sortedP.map(p =>
+    `<div><span class="sw" style="background:#${priorityColor(p).toString(16).padStart(6,'0')}"></span>Priority ${p}</div>`
+  );
+  document.getElementById('legend').innerHTML = lines.length
+    ? `<div class="title">Priority</div>${lines.join('')}` : '';
+
+  // Frame camera around workspace
+  const span = Math.max(totalW + stagingW + STAGING_GAP, maxH * 4, 14);
+  defaultCam.pos.set(span * 0.4, span * 0.7, span * 0.9);
+  defaultCam.target.set(stagingX > 0 ? totalW / 2 : 0, maxH / 2, maxL / 2);
+  resetView();
+  applyExplode();
+};
+
+function scuDimsFromType(scu) {
+  const map = {
+    "1 SCU": [1, 1, 1], "2 SCU": [2, 1, 1], "4 SCU": [2, 2, 1],
+    "8 SCU": [2, 2, 2], "16 SCU": [2, 4, 2], "24 SCU": [2, 6, 2], "32 SCU": [2, 8, 2],
+  };
+  return map[scu];
+}
+
+function addItemMesh({ dims, color, position, gridCenter, info, unplaced }) {
+  const [dw, dl, dh] = dims;
+  const geom = new THREE.BoxGeometry(dw, dh, dl);
+  const mat = new THREE.MeshStandardMaterial({
+    color, transparent: true, opacity: unplaced ? 0.55 : 0.78,
+    roughness: 0.55, metalness: 0.12,
+  });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.copy(position);
+  scene.add(mesh);
+
+  const edgeGeo = new THREE.EdgesGeometry(geom);
+  const edgeMat = new THREE.LineBasicMaterial({
+    color: unplaced ? 0xd29922 : 0x000000,
+    opacity: unplaced ? 0.95 : 0.5,
+    transparent: true,
+    linewidth: unplaced ? 2 : 1,
+  });
+  const edge = new THREE.LineSegments(edgeGeo, edgeMat);
+  edge.position.copy(position);
+  scene.add(edge);
+
+  const record = {
+    mesh, edge, base: position.clone(), gridCenter,
+    originalPos: position.clone(), info, unplaced, dims,
+  };
+  mesh.userData = record;
+  itemMeshes.push(record);
+}
+
+window.resetView = function() {
+  camera.position.copy(defaultCam.pos);
+  orbit.target.copy(defaultCam.target);
+  orbit.update();
+};
+
+window.resetPositions = function() {
+  for (const r of itemMeshes) {
+    r.base.copy(r.originalPos);
+    r.mesh.position.copy(r.originalPos);
+    r.edge.position.copy(r.originalPos);
+  }
+  applyExplode();
+};
+
+window.toggleTransparent = function() {
+  const on = document.getElementById('transparentToggle').checked;
+  for (const r of itemMeshes) {
+    if (r.mesh.material && r.mesh.material.type === 'MeshStandardMaterial') {
+      const baseOp = r.unplaced ? 0.55 : 0.78;
+      r.mesh.material.opacity = on ? baseOp : 1.0;
+      r.mesh.material.transparent = on;
+    }
+  }
+};
+
+window.toggleGrid = function() {
+  const on = document.getElementById('gridToggle').checked;
+  for (const g of gridHelpers) g.visible = on;
+};
+
+function dragEnabled() { return document.getElementById('dragToggle').checked; }
+function snapEnabled() { return document.getElementById('snapToggle').checked; }
+
+window.setExplode = function(v) {
+  explodeFactor = parseFloat(v) / 100.0;
+  applyExplode();
+};
+
+function applyExplode() {
+  for (const r of itemMeshes) {
+    const dir = new THREE.Vector3().subVectors(r.base, r.gridCenter);
+    const offset = dir.clone().multiplyScalar(explodeFactor * 0.7);
+    const pos = new THREE.Vector3().addVectors(r.base, offset);
+    r.mesh.position.copy(pos);
+    r.edge.position.copy(pos);
+  }
+}
+
+// ──── Custom drag: horizontal-plane by default, Shift+drag for vertical lift ────
+
+function pickItem(event) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const m = new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1,
+  );
+  raycaster.setFromCamera(m, camera);
+  const hits = raycaster.intersectObjects(itemMeshes.map(r => r.mesh), false);
+  return hits.length > 0 ? hits[0] : null;
+}
+
+function makeDragPlane(point, mode) {
+  const plane = new THREE.Plane();
+  if (mode === 'vertical') {
+    // Plane perpendicular to camera-X (so Y movement projects naturally)
+    const camRight = new THREE.Vector3();
+    camera.getWorldDirection(camRight);
+    camRight.cross(camera.up).normalize();
+    plane.setFromNormalAndCoplanarPoint(camRight, point);
+  } else {
+    // Horizontal plane through the object's current Y
+    plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), point);
+  }
+  return plane;
+}
+
+function intersectPlaneFromEvent(event, plane) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const m = new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1,
+  );
+  raycaster.setFromCamera(m, camera);
+  const hit = new THREE.Vector3();
+  return raycaster.ray.intersectPlane(plane, hit) ? hit : null;
+}
+
+function onPointerDown(event) {
+  if (event.button !== 0) return;
+  if (!dragEnabled()) return;
+  const hit = pickItem(event);
+  if (!hit) return;
+
+  // Stop OrbitControls from seeing this event — we're dragging an item.
+  event.stopImmediatePropagation();
+
+  const r = hit.object.userData;
+  const mode = event.shiftKey ? 'vertical' : 'horizontal';
+  const plane = makeDragPlane(r.mesh.position, mode);
+  const planeHit = intersectPlaneFromEvent(event, plane);
+  if (!planeHit) return;
+
+  orbit.enabled = false;
+  dragState = {
+    record: r,
+    plane, mode,
+    startPos: r.mesh.position.clone(),
+    lastValid: r.mesh.position.clone(),
+    offset: new THREE.Vector3().subVectors(planeHit, r.mesh.position),
+    hasMoved: false,
+  };
+  // Highlight
+  r.__matBackup = r.mesh.material;
+  const hl = r.__matBackup.clone();
+  hl.emissive = new THREE.Color(0x58a6ff);
+  hl.emissiveIntensity = 0.45;
+  hl.opacity = 1.0;
+  hl.transparent = false;
+  r.mesh.material = hl;
+  renderer.domElement.style.cursor = 'grabbing';
+  event.preventDefault();
+}
+
+function onPointerDrag(event) {
+  if (!dragState) return;
+  const planeHit = intersectPlaneFromEvent(event, dragState.plane);
+  if (!planeHit) return;
+  const newPos = new THREE.Vector3().subVectors(planeHit, dragState.offset);
+
+  if (dragState.mode === 'horizontal') {
+    newPos.y = dragState.startPos.y;
+  } else {
+    newPos.x = dragState.startPos.x;
+    newPos.z = dragState.startPos.z;
+    newPos.y = Math.max(dragState.record.dims[2] / 2, newPos.y);
+  }
+  dragState.record.mesh.position.copy(newPos);
+  dragState.record.edge.position.copy(newPos);
+  dragState.hasMoved = dragState.hasMoved || newPos.distanceTo(dragState.startPos) > 0.05;
+
+  const colliding = isColliding(dragState.record);
+  setCollisionTint(dragState.record, colliding);
+  if (!colliding) dragState.lastValid.copy(newPos);
+}
+
+function onPointerHover(event) {
+  if (dragState) return;
+  if (!dragEnabled()) return;
+  const hit = pickItem(event);
+  renderer.domElement.style.cursor = hit ? 'grab' : 'default';
+}
+
+function onPointerUp(event) {
+  if (!dragState) return;
+  const r = dragState.record;
+  const colliding = isColliding(r);
+  if (colliding) {
+    // Revert to last valid position (or start)
+    const target = dragState.lastValid;
+    r.mesh.position.copy(target);
+    r.edge.position.copy(target);
+  } else if (dragState.hasMoved && snapEnabled()) {
+    snapToIntegers(r.mesh);
+    // After snap, recheck collision; if it now collides, revert
+    if (isColliding(r)) {
+      r.mesh.position.copy(dragState.lastValid);
+      r.edge.position.copy(dragState.lastValid);
+    } else {
+      r.edge.position.copy(r.mesh.position);
+    }
+  }
+  // Restore material + edge color
+  if (r.__matBackup) {
+    r.mesh.material = r.__matBackup;
+    delete r.__matBackup;
+  }
+  setCollisionTint(r, false);
+  r.base.copy(r.mesh.position);
+  updateValidity(r);
+
+  orbit.enabled = true;
+  renderer.domElement.style.cursor = 'default';
+  // If it didn't actually move, treat it as a click for selection
+  if (!dragState.hasMoved) selectItem(r.mesh);
+  dragState = null;
+}
+
+function isColliding(r) {
+  const m = r.mesh;
+  const [dw, dl, dh] = r.dims;
+  const ix1 = m.position.x - dw/2, ix2 = m.position.x + dw/2;
+  const iy1 = m.position.y - dh/2, iy2 = m.position.y + dh/2;
+  const iz1 = m.position.z - dl/2, iz2 = m.position.z + dl/2;
+  const eps = 0.001;
+  for (const other of itemMeshes) {
+    if (other === r) continue;
+    const om = other.mesh;
+    const [ow, ol, oh] = other.dims;
+    const ox1 = om.position.x - ow/2, ox2 = om.position.x + ow/2;
+    const oy1 = om.position.y - oh/2, oy2 = om.position.y + oh/2;
+    const oz1 = om.position.z - ol/2, oz2 = om.position.z + ol/2;
+    if (ix2 - eps > ox1 && ox2 - eps > ix1 &&
+        iy2 - eps > oy1 && oy2 - eps > iy1 &&
+        iz2 - eps > oz1 && oz2 - eps > iz1) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function setCollisionTint(r, colliding) {
+  if (!r.mesh.material || r.mesh.material.type !== 'MeshStandardMaterial') return;
+  if (colliding) {
+    r.mesh.material.emissive = new THREE.Color(0xf85149);
+    r.mesh.material.emissiveIntensity = 0.6;
+  } else if (dragState && dragState.record === r) {
+    r.mesh.material.emissive = new THREE.Color(0x58a6ff);
+    r.mesh.material.emissiveIntensity = 0.45;
+  } else {
+    r.mesh.material.emissive = new THREE.Color(0x000000);
+    r.mesh.material.emissiveIntensity = 0;
+  }
+}
+
+function selectItem(mesh) {
+  if (selectedMesh && originalMaterial) selectedMesh.material = originalMaterial;
+  selectedMesh = mesh;
+  originalMaterial = mesh.material;
+  const hl = originalMaterial.clone();
+  hl.emissive = new THREE.Color(0x58a6ff);
+  hl.emissiveIntensity = 0.5;
+  hl.opacity = 1.0;
+  hl.transparent = false;
+  mesh.material = hl;
+  showInfo(mesh.userData);
+}
+
+function snapToIntegers(mesh) {
+  // Snap so the item's bottom-left-front corner aligns to integers within whichever grid it's over.
+  const r = mesh.userData;
+  const [dw, dl, dh] = r.dims;
+  // Find candidate grid by mesh center
+  const cx = mesh.position.x;
+  const cz = mesh.position.z;
+  let gidx = -1;
+  for (const [i, ox] of Object.entries(lastGridOrigins)) {
+    const dims = lastGrids[i] && lastGrids[i][0];
+    if (!dims) continue;
+    const [gw, gl, gh] = dims;
+    if (cx >= ox && cx <= ox + gw && cz >= 0 && cz <= gl) { gidx = parseInt(i); break; }
+  }
+  if (gidx === -1) {
+    // Outside grids — snap to integer cells anyway (free workspace)
+    const gx = Math.round(mesh.position.x - dw/2);
+    const gz = Math.round(mesh.position.z - dl/2);
+    const gy = Math.max(dh/2, Math.round(mesh.position.y - dh/2) + dh/2);
+    mesh.position.set(gx + dw/2, gy, gz + dl/2);
+    return;
+  }
+  const ox = lastGridOrigins[gidx];
+  const dims = lastGrids[gidx][0];
+  const [gw, gl, gh] = dims;
+  let lx = Math.round(mesh.position.x - ox - dw/2);
+  let ly = Math.round(mesh.position.z - dl/2);
+  let lz = Math.max(0, Math.round(mesh.position.y - dh/2));
+  // Clamp to grid bounds
+  lx = Math.max(0, Math.min(gw - dw, lx));
+  ly = Math.max(0, Math.min(gl - dl, ly));
+  lz = Math.max(0, Math.min(gh - dh, lz));
+  mesh.position.set(ox + lx + dw/2, lz + dh/2, ly + dl/2);
+}
+
+function updateValidity(r) {
+  // Determine if mesh is fully inside any grid bounding box
+  const m = r.mesh;
+  const [dw, dl, dh] = r.dims;
+  const x1 = m.position.x - dw/2;
+  const x2 = m.position.x + dw/2;
+  const z1 = m.position.z - dl/2;
+  const z2 = m.position.z + dl/2;
+  const y1 = m.position.y - dh/2;
+  const y2 = m.position.y + dh/2;
+  let inside = false;
+  let insideName = null;
+  for (const [i, ox] of Object.entries(lastGridOrigins)) {
+    const dims = lastGrids[i] && lastGrids[i][0];
+    if (!dims) continue;
+    const [gw, gl, gh] = dims;
+    if (x1 >= ox - 0.001 && x2 <= ox + gw + 0.001 &&
+        z1 >= -0.001 && z2 <= gl + 0.001 &&
+        y1 >= -0.001 && y2 <= gh + 0.001) {
+      inside = true;
+      insideName = lastGrids[i][1];
+      break;
+    }
+  }
+  // Visual: outside-grid items get an orange edge
+  if (r.edge) {
+    r.edge.material.color.set(inside ? 0x000000 : 0xd29922);
+    r.edge.material.opacity = inside ? 0.5 : 0.95;
+  }
+  r.info.grid = insideName || (r.unplaced ? 'Unplaced' : 'Outside');
+  r.info.position = [Math.round(m.position.x - (insideName ? lastGridOrigins[Object.entries(lastGridOrigins).find(([_,ox]) => true)[0]] : 0)),
+                     Math.round(m.position.z),
+                     Math.round(m.position.y - 0.5)];
+  // If currently selected, refresh info panel
+  if (selectedMesh === r.mesh) showInfo(r);
+}
+
+function onCanvasClick(event) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const meshes = itemMeshes.map(r => r.mesh);
+  const hits = raycaster.intersectObjects(meshes, false);
+
+  if (selectedMesh && originalMaterial) {
+    selectedMesh.material = originalMaterial;
+  }
+  if (hits.length === 0) {
+    selectedMesh = null;
+    originalMaterial = null;
+    document.getElementById('info').style.display = 'none';
+    return;
+  }
+
+  const target = hits[0].object;
+  selectedMesh = target;
+  originalMaterial = target.material;
+  const hl = originalMaterial.clone();
+  hl.emissive = new THREE.Color(0x58a6ff);
+  hl.emissiveIntensity = 0.5;
+  hl.opacity = 1.0;
+  hl.transparent = false;
+  target.material = hl;
+
+  showInfo(target.userData);
+}
+
+function showInfo(r) {
+  const info = r.info;
+  const dims = info.dims;
+  const pos = info.position;
+  let badge = '<span class="badge placed">Placed</span>';
+  if (r.unplaced) badge = '<span class="badge unplaced">Unplaced</span>';
+  if (info.grid === 'Outside') badge = '<span class="badge outside">Outside Grid</span>';
+  document.getElementById('info').innerHTML = `
+    <div class="ttl">${info.scu}${badge}</div>
+    <div class="row"><span class="k">Priority</span><span>P${info.priority}</span></div>
+    <div class="row"><span class="k">Grid</span><span>${info.grid}</span></div>
+    <div class="row"><span class="k">Position</span><span>${pos[0]}, ${pos[1]}, ${pos[2]}</span></div>
+    <div class="row"><span class="k">Dimensions</span><span>${dims[0].toFixed(0)} × ${dims[1].toFixed(0)} × ${dims[2].toFixed(0)}</span></div>
+  `;
+  document.getElementById('info').style.display = 'block';
+}
+
+function makeTextSprite(text, color) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512; canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+  ctx.font = 'bold 56px "Segoe UI", sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+  const tex = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(6, 1.5, 1);
+  return sprite;
+}
+
+try {
+  init();
+  window.__rendererReady = true;
+  document.getElementById('hud').textContent = 'Ready · awaiting packing result';
+} catch (e) {
+  showErr('[init] ' + (e.message || e) + '\n' + (e.stack || ''));
+}
+</script>
+</body>
+</html>
