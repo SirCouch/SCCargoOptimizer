@@ -4,7 +4,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal, QUrl, QSettings
+from PySide6.QtCore import Qt, QThread, Signal, QUrl, QSettings, QStandardPaths
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -14,14 +14,43 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
+
+def _resource_root() -> Path:
+    """Locate bundled read-only resources.
+    - Frozen (PyInstaller --onefile): sys._MEIPASS
+    - Frozen (PyInstaller --onedir): dir containing the exe
+    - Dev: project root (parent of src/)
+    """
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    return Path(__file__).resolve().parent.parent
+
+
+APP_ORG = "StarCitizen"
+APP_NAME = "CargoOptimizer"
+
+
+def _user_data_dir() -> Path:
+    """Per-user writable directory under platform AppData. Resolved without
+    Qt so it works at import time, before QApplication exists."""
+    base = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+    if not base:
+        base = str(Path.home() / "AppData" / "Roaming")
+    p = Path(base) / APP_ORG / APP_NAME
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+# In dev, src/ is alongside the resources; in frozen, src/ ships next to resources too.
+sys.path.insert(0, str(_resource_root() / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from scu_manifest_generator import SCU_DEFINITIONS
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SHIPS_FILE = PROJECT_ROOT / "ships_cargo_grids.json"
-VIEWER_HTML = PROJECT_ROOT / "frontend" / "viewer.html"
-PRESETS_FILE = PROJECT_ROOT / "presets.json"
+RESOURCE_ROOT = _resource_root()
+SHIPS_FILE = RESOURCE_ROOT / "ships_cargo_grids.json"
+VIEWER_HTML = RESOURCE_ROOT / "frontend" / "viewer.html"
+PRESETS_FILE = _user_data_dir() / "presets.json"
 MAX_PRIORITY = 5
 
 # GitHub-dark inspired palette
@@ -154,9 +183,8 @@ class ModelLoader(QThread):
 
     def run(self):
         try:
-            os.chdir(PROJECT_ROOT)
             from ensemble_inference import EnsembleRouter
-            router = EnsembleRouter()
+            router = EnsembleRouter(base_dir=str(RESOURCE_ROOT))
             self.ready.emit(router)
         except Exception as e:
             self.failed.emit(f"{e}\n\n{traceback.format_exc()}")
@@ -331,8 +359,8 @@ class CargoTable(QTableWidget):
 
 
 class MainWindow(QMainWindow):
-    SETTINGS_ORG = "StarCitizen"
-    SETTINGS_APP = "CargoOptimizer"
+    SETTINGS_ORG = APP_ORG
+    SETTINGS_APP = APP_NAME
 
     def __init__(self):
         super().__init__()

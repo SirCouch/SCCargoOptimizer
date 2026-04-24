@@ -4,13 +4,19 @@ import numpy as np
 from packing_core.utils import load_trained_model, pack_single_manifest
 
 class EnsembleRouter:
-    def __init__(self, small_ckpt="small_gnn_model.pt", medium_ckpt="medium_gnn_model.pt", large_ckpt="large_gnn_model.pt"):
+    def __init__(self, small_ckpt="small_gnn_model.pt", medium_ckpt="medium_gnn_model.pt",
+                 large_ckpt="large_gnn_model.pt", base_dir=None):
         print("Initializing Specialized Ensemble Router...")
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        # Determine path relative to root
-        base_path = "." if os.path.exists(small_ckpt) else ".."
-            
+
+        # Resolve checkpoint paths against base_dir if provided; else look in CWD or its parent.
+        if base_dir is not None:
+            base_path = base_dir
+        elif os.path.exists(small_ckpt):
+            base_path = "."
+        else:
+            base_path = ".."
+
         small_path = os.path.join(base_path, small_ckpt)
         medium_path = os.path.join(base_path, medium_ckpt)
         large_path = os.path.join(base_path, large_ckpt)
