@@ -30,6 +30,26 @@
               max-width: calc(100% - 320px); }
   #info { position: absolute; bottom: 10px; right: 10px; padding: 10px 14px;
           font-size: 12px; max-width: 280px; display: none; }
+  #tip { position: absolute; top: 50%; left: 50%; transform: translate(-50%, 0);
+         margin-top: 80px; padding: 8px 16px; font-size: 12px; pointer-events: none;
+         display: none; color: var(--fg); border: 1px solid var(--accent);
+         box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+  #tip kbd { background: #21262d; border: 1px solid var(--border); border-radius: 3px;
+             padding: 1px 6px; font-family: Consolas, monospace; font-size: 11px;
+             color: var(--fg); margin: 0 2px; }
+  #help-btn { position: absolute; top: 10px; right: 140px; z-index: 5;
+              width: 28px; height: 28px; padding: 0; border-radius: 14px;
+              font-size: 14px; font-weight: 700; }
+  #help { position: absolute; top: 48px; right: 10px; padding: 14px 18px;
+          font-size: 12px; max-width: 320px; display: none; line-height: 1.7; z-index: 6; }
+  #help h4 { color: var(--accent); font-size: 10px; text-transform: uppercase;
+             letter-spacing: 0.7px; margin: 12px 0 4px 0; font-weight: 700; }
+  #help h4:first-child { margin-top: 0; }
+  #help kbd { background: #21262d; border: 1px solid var(--border);
+              border-radius: 3px; padding: 1px 6px; font-family: Consolas, monospace;
+              font-size: 11px; color: var(--fg); }
+  #help .row { display: flex; justify-content: space-between; gap: 14px; align-items: baseline; }
+  #help .k { color: var(--muted); }
   #info .ttl { color: var(--accent); font-weight: 600; margin-bottom: 4px; font-size: 13px; }
   #info .row { display: flex; justify-content: space-between; gap: 12px; }
   #info .k { color: var(--muted); }
@@ -54,6 +74,28 @@
 <div id="hud" class="panel">Awaiting packing result…</div>
 <div id="legend" class="panel"></div>
 <div id="info" class="panel"></div>
+<button id="help-btn" class="panel" onclick="toggleHelp()" title="Show / hide controls help">?</button>
+<div id="tip" class="panel"></div>
+<div id="help" class="panel">
+  <h4>Camera</h4>
+  <div class="row"><span class="k">Orbit</span><span><kbd>Left drag</kbd> empty space</span></div>
+  <div class="row"><span class="k">Pan</span><span><kbd>Right drag</kbd></span></div>
+  <div class="row"><span class="k">Zoom</span><span><kbd>Scroll</kbd></span></div>
+  <div class="row"><span class="k">Reframe</span><span><kbd>Reset View</kbd> button</span></div>
+  <h4>Move a Box</h4>
+  <div class="row"><span class="k">Slide & auto-stack</span><span><kbd>Left drag</kbd> a box</span></div>
+  <div class="row"><span class="k">Free vertical lift</span><span><kbd>Shift</kbd> + <kbd>drag</kbd></span></div>
+  <div class="row"><span class="k">Snap on drop</span><span>Integer cells + gravity (toggle <kbd>Snap</kbd>)</span></div>
+  <div class="row"><span class="k">Collisions</span><span>Red tint = blocked · drop reverts</span></div>
+  <div class="row"><span class="k">Inspect</span><span>Click a box (no drag)</span></div>
+  <h4>Unplaced Items</h4>
+  <div class="row"><span class="k">Where</span><span>Amber zone, right side</span></div>
+  <div class="row"><span class="k">Use</span><span>Drag into a grid</span></div>
+  <h4>Other</h4>
+  <div class="row"><span class="k">Reset positions</span><span>Undoes all manual moves</span></div>
+  <div class="row"><span class="k">Explode</span><span>Spread items from grid centers</span></div>
+  <div class="row"><span class="k">Outside grid</span><span>Orange edge = invalid spot for the model</span></div>
+</div>
 <div id="err" style="display:none; position:absolute; inset:14px; background:rgba(139,0,0,0.92);
      padding:14px; border-radius:6px; font-size:12px; white-space:pre-wrap; overflow:auto;
      border:1px solid #ef476f; z-index:99;"></div>
@@ -71,18 +113,16 @@
 </script>
 
 <div id="controls" class="panel">
-  <button onclick="resetView()">Reset View</button>
-  <button onclick="resetPositions()">Reset Positions</button>
+  <button onclick="resetView()" title="Reframe the camera around the ship">Reset View</button>
+  <button onclick="resetPositions()" title="Move every box back to where the model put it (undoes manual drags)">Reset Positions</button>
   <span class="sep"></span>
-  <label><input type="checkbox" id="snapToggle" checked> Snap</label>
-  <label><input type="checkbox" id="dragToggle" checked> Drag</label>
+  <label title="When releasing a drag, snap to integer cells and gravity-snap to the nearest surface below"><input type="checkbox" id="snapToggle" checked> Snap</label>
+  <label title="Allow click-and-drag to move boxes; turn off to use orbit camera anywhere"><input type="checkbox" id="dragToggle" checked> Drag</label>
   <span class="sep"></span>
-  <label><input type="checkbox" id="transparentToggle" checked onchange="toggleTransparent()"> Transparent</label>
-  <label><input type="checkbox" id="gridToggle" onchange="toggleGrid()"> Grid lines</label>
+  <label title="Make boxes semi-transparent so you can see items inside grids"><input type="checkbox" id="transparentToggle" checked onchange="toggleTransparent()"> Transparent</label>
+  <label title="Show 1-unit floor grid lines for spatial reference"><input type="checkbox" id="gridToggle" onchange="toggleGrid()"> Grid lines</label>
   <span class="sep"></span>
-  <label>Explode <input type="range" id="explodeSlider" min="0" max="100" value="0" oninput="setExplode(this.value)"></label>
-  <span class="sep"></span>
-  <span style="color:var(--muted); font-size:11px;">drag = slide · shift+drag = lift · collisions revert</span>
+  <label title="Spread items outward from each grid's center for inspection">Explode <input type="range" id="explodeSlider" min="0" max="100" value="0" oninput="setExplode(this.value)"></label>
 </div>
 
 <script type="importmap">
@@ -268,22 +308,25 @@ window.loadPacking = function(data) {
   workspaceFloor.position.set(0, -0.01, maxL / 2);
   scene.add(workspaceFloor);
 
-  // Unplaced staging zone (right of last grid)
+  // Unplaced staging zone — fixed footprint, items stack into a tight pile.
+  // Footprint sized to fit the largest SCU container (32 SCU = 2x8x2). 4×8 base.
+  const STAGE_W = 4;
+  const STAGE_L = 8;
   const stagingX = (totalW > 0 ? totalW + shift + STAGING_GAP : 4);
-  const stagingW = Math.max(8, unplaced.length * 1.5 + 4);
-  const stagingGeo = new THREE.PlaneGeometry(stagingW, STAGING_DEPTH * 2);
+  const stagingZ = Math.max(0, maxL / 2 - STAGE_L / 2);
+  const stagingGeo = new THREE.PlaneGeometry(STAGE_W, STAGE_L);
   const stagingMat = new THREE.MeshBasicMaterial({ color: 0x3a1a02, side: THREE.DoubleSide,
                                                    transparent: true, opacity: 0.45 });
   stagingZone = new THREE.Mesh(stagingGeo, stagingMat);
   stagingZone.rotation.x = -Math.PI / 2;
-  stagingZone.position.set(stagingX + stagingW / 2, 0.002, maxL / 2);
+  stagingZone.position.set(stagingX + STAGE_W / 2, 0.002, stagingZ + STAGE_L / 2);
   scene.add(stagingZone);
 
   // Staging label
   if (unplaced.length > 0) {
     const stagingLabel = makeTextSprite(`Unplaced (${unplaced.length}) — drag to place`, 0xd29922);
     stagingLabel.scale.set(8, 1.2, 1);
-    stagingLabel.position.set(stagingX + stagingW / 2, 0.5, maxL / 2 - STAGING_DEPTH - 0.5);
+    stagingLabel.position.set(stagingX + STAGE_W / 2, 0.5, stagingZ - 1.0);
     scene.add(stagingLabel);
     gridMeshes.push(stagingLabel);
   }
@@ -306,23 +349,60 @@ window.loadPacking = function(data) {
     });
   }
 
-  // Spawn unplaced items in staging zone
-  let spawnX = stagingX + 1;
-  const spawnZ = maxL / 2;
-  for (const u of unplaced) {
+  // Spawn unplaced items as a tight bin-packed pile inside the staging zone.
+  // Bottom-left greedy fill: for each item, find the (x,y) cell where it fits
+  // and the supporting top is lowest; place there and stack upward.
+  const stagingHeights = Array(STAGE_W * STAGE_L).fill(0);  // per-cell stacked top
+  // Sort unplaced by descending volume so big items get prime real estate.
+  const stageItems = unplaced.slice().sort((a, b) => {
+    const va = (a.dims || scuDimsFromType(a.scu_type) || [1,1,1]).reduce((p,c)=>p*c, 1);
+    const vb = (b.dims || scuDimsFromType(b.scu_type) || [1,1,1]).reduce((p,c)=>p*c, 1);
+    return vb - va;
+  });
+  for (const u of stageItems) {
     const dims = u.dims || scuDimsFromType(u.scu_type) || [1, 1, 1];
-    const [w_dim, l_dim, h_dim] = dims;
-    const basePos = new THREE.Vector3(spawnX + w_dim/2, h_dim/2, spawnZ + l_dim/2);
+    let [w_dim, l_dim, h_dim] = dims.map(v => Math.round(v));
+    // Ensure footprint fits — rotate around Z if width too big
+    if (w_dim > STAGE_W && l_dim <= STAGE_W) [w_dim, l_dim] = [l_dim, w_dim];
+    // Find best position: lowest top, ties broken by closest to (0,0)
+    let best = null;
+    const maxX = STAGE_W - w_dim, maxY = STAGE_L - l_dim;
+    for (let x = 0; x <= maxX; x++) {
+      for (let y = 0; y <= maxY; y++) {
+        let top = 0;
+        for (let dx = 0; dx < w_dim; dx++)
+          for (let dy = 0; dy < l_dim; dy++)
+            top = Math.max(top, stagingHeights[(x + dx) * STAGE_L + (y + dy)]);
+        const score = top * 1000 + x + y;  // prefer lower top, then bottom-left
+        if (best === null || score < best.score) best = { x, y, top, score };
+      }
+    }
+    if (best === null) {
+      // Item too big for staging footprint — fall back: park beside the staging zone
+      best = { x: STAGE_W + 1, y: 0, top: 0 };
+    }
+    const newTop = best.top + h_dim;
+    if (best.x < STAGE_W && best.y < STAGE_L) {
+      for (let dx = 0; dx < w_dim; dx++)
+        for (let dy = 0; dy < l_dim; dy++) {
+          const idx = (best.x + dx) * STAGE_L + (best.y + dy);
+          if (idx >= 0 && idx < stagingHeights.length) stagingHeights[idx] = newTop;
+        }
+    }
+    const basePos = new THREE.Vector3(
+      stagingX + best.x + w_dim/2,
+      best.top + h_dim/2,
+      stagingZ + best.y + l_dim/2,
+    );
     addItemMesh({
       dims: [w_dim, l_dim, h_dim], color: priorityColor(u.priority),
       position: basePos, gridCenter: basePos.clone(),
       info: {
-        scu: u.scu_type, priority: u.priority, dims,
+        scu: u.scu_type, priority: u.priority, dims: [w_dim, l_dim, h_dim],
         position: [0, 0, 0], grid: 'Unplaced',
       },
       unplaced: true,
     });
-    spawnX += w_dim + 1.0;
   }
 
   // (custom pointer drag handles arbitrary itemMeshes)
@@ -348,7 +428,7 @@ window.loadPacking = function(data) {
     ? `<div class="title">Priority</div>${lines.join('')}` : '';
 
   // Frame camera around workspace
-  const span = Math.max(totalW + stagingW + STAGING_GAP, maxH * 4, 14);
+  const span = Math.max(totalW + STAGE_W + STAGING_GAP, maxH * 4, 14);
   defaultCam.pos.set(span * 0.4, span * 0.7, span * 0.9);
   defaultCam.target.set(stagingX > 0 ? totalW / 2 : 0, maxH / 2, maxL / 2);
   resetView();
@@ -423,6 +503,30 @@ window.toggleGrid = function() {
   const on = document.getElementById('gridToggle').checked;
   for (const g of gridHelpers) g.visible = on;
 };
+
+window.toggleHelp = function() {
+  const el = document.getElementById('help');
+  const btn = document.getElementById('help-btn');
+  const showing = el.style.display !== 'block';
+  el.style.display = showing ? 'block' : 'none';
+  btn.classList.toggle('active', showing);
+};
+
+function showTip(html, autoHideMs) {
+  const el = document.getElementById('tip');
+  el.innerHTML = html;
+  el.style.display = 'block';
+  if (autoHideMs) {
+    clearTimeout(el.__hideTimer);
+    el.__hideTimer = setTimeout(() => { el.style.display = 'none'; }, autoHideMs);
+  }
+}
+
+function hideTip() {
+  const el = document.getElementById('tip');
+  el.style.display = 'none';
+  clearTimeout(el.__hideTimer);
+}
 
 function dragEnabled() { return document.getElementById('dragToggle').checked; }
 function snapEnabled() { return document.getElementById('snapToggle').checked; }
@@ -514,17 +618,50 @@ function onPointerDown(event) {
   hl.transparent = false;
   r.mesh.material = hl;
   renderer.domElement.style.cursor = 'grabbing';
+  showTip(mode === 'vertical'
+    ? 'Free lift · release <kbd>Shift</kbd> to drop and auto-stack again'
+    : 'Drag · auto-stacks onto boxes underneath · hold <kbd>Shift</kbd> for free lift');
   event.preventDefault();
 }
 
 function onPointerDrag(event) {
   if (!dragState) return;
+  // Live shift-key check: allow toggling between modes mid-drag.
+  const wantsVertical = event.shiftKey;
+  if (wantsVertical !== (dragState.mode === 'vertical')) {
+    dragState.mode = wantsVertical ? 'vertical' : 'horizontal';
+    dragState.plane = makeDragPlane(dragState.record.mesh.position, dragState.mode);
+    const ph = intersectPlaneFromEvent(event, dragState.plane);
+    if (ph) dragState.offset.copy(ph).sub(dragState.record.mesh.position);
+    showTip(dragState.mode === 'vertical'
+      ? 'Free lift · release <kbd>Shift</kbd> to drop and auto-stack again'
+      : 'Drag · auto-stacks onto boxes underneath · hold <kbd>Shift</kbd> for free lift');
+  }
   const planeHit = intersectPlaneFromEvent(event, dragState.plane);
   if (!planeHit) return;
   const newPos = new THREE.Vector3().subVectors(planeHit, dragState.offset);
 
   if (dragState.mode === 'horizontal') {
-    newPos.y = dragState.startPos.y;
+    // Auto-stack: Y always sits on the highest overlapping surface (floor or box top)
+    // at the new (X, Z). Drag the box across a pile and it walks up; over empty floor
+    // it drops back to ground level.
+    const [dw, dl, dh] = dragState.record.dims;
+    const ix1 = newPos.x - dw/2, ix2 = newPos.x + dw/2;
+    const iz1 = newPos.z - dl/2, iz2 = newPos.z + dl/2;
+    let supportTop = 0;
+    for (const other of itemMeshes) {
+      if (other === dragState.record) continue;
+      const [ow, ol, oh] = other.dims;
+      const ox1 = other.mesh.position.x - ow/2, ox2 = other.mesh.position.x + ow/2;
+      const oz1 = other.mesh.position.z - ol/2, oz2 = other.mesh.position.z + ol/2;
+      const xOv = Math.min(ix2, ox2) - Math.max(ix1, ox1);
+      const zOv = Math.min(iz2, oz2) - Math.max(iz1, oz1);
+      if (xOv > 0.001 && zOv > 0.001) {
+        const otherTop = other.mesh.position.y + oh/2;
+        if (otherTop > supportTop) supportTop = otherTop;
+      }
+    }
+    newPos.y = supportTop + dh/2;
   } else {
     newPos.x = dragState.startPos.x;
     newPos.z = dragState.startPos.z;
@@ -576,6 +713,7 @@ function onPointerUp(event) {
 
   orbit.enabled = true;
   renderer.domElement.style.cursor = 'default';
+  hideTip();
   // If it didn't actually move, treat it as a click for selection
   if (!dragState.hasMoved) selectItem(r.mesh);
   dragState = null;
@@ -632,12 +770,13 @@ function selectItem(mesh) {
 }
 
 function snapToIntegers(mesh) {
-  // Snap so the item's bottom-left-front corner aligns to integers within whichever grid it's over.
+  // 1) Snap X/Z to integer cells, clamping inside the grid the item is over.
+  // 2) Gravity-snap Y to whichever surface (floor or top of overlapping box) it lands on.
   const r = mesh.userData;
   const [dw, dl, dh] = r.dims;
+  const cx = mesh.position.x, cz = mesh.position.z;
+
   // Find candidate grid by mesh center
-  const cx = mesh.position.x;
-  const cz = mesh.position.z;
   let gidx = -1;
   for (const [i, ox] of Object.entries(lastGridOrigins)) {
     const dims = lastGrids[i] && lastGrids[i][0];
@@ -645,25 +784,65 @@ function snapToIntegers(mesh) {
     const [gw, gl, gh] = dims;
     if (cx >= ox && cx <= ox + gw && cz >= 0 && cz <= gl) { gidx = parseInt(i); break; }
   }
+
+  // Step 1: integer X/Z
   if (gidx === -1) {
-    // Outside grids — snap to integer cells anyway (free workspace)
+    // Outside any grid: free workspace integer snap
     const gx = Math.round(mesh.position.x - dw/2);
     const gz = Math.round(mesh.position.z - dl/2);
-    const gy = Math.max(dh/2, Math.round(mesh.position.y - dh/2) + dh/2);
-    mesh.position.set(gx + dw/2, gy, gz + dl/2);
-    return;
+    mesh.position.x = gx + dw/2;
+    mesh.position.z = gz + dl/2;
+  } else {
+    const ox = lastGridOrigins[gidx];
+    const [gw, gl] = lastGrids[gidx][0];
+    let lx = Math.round(mesh.position.x - ox - dw/2);
+    let ly = Math.round(mesh.position.z - dl/2);
+    lx = Math.max(0, Math.min(gw - dw, lx));
+    ly = Math.max(0, Math.min(gl - dl, ly));
+    mesh.position.x = ox + lx + dw/2;
+    mesh.position.z = ly + dl/2;
   }
-  const ox = lastGridOrigins[gidx];
-  const dims = lastGrids[gidx][0];
-  const [gw, gl, gh] = dims;
-  let lx = Math.round(mesh.position.x - ox - dw/2);
-  let ly = Math.round(mesh.position.z - dl/2);
-  let lz = Math.max(0, Math.round(mesh.position.y - dh/2));
-  // Clamp to grid bounds
-  lx = Math.max(0, Math.min(gw - dw, lx));
-  ly = Math.max(0, Math.min(gl - dl, ly));
-  lz = Math.max(0, Math.min(gh - dh, lz));
-  mesh.position.set(ox + lx + dw/2, lz + dh/2, ly + dl/2);
+
+  // Step 2: gravity-snap Y. Find supporting surface = max top of any item
+  // whose XZ footprint overlaps ours. Floor (Y=0) is always a candidate.
+  const ix1 = mesh.position.x - dw/2, ix2 = mesh.position.x + dw/2;
+  const iz1 = mesh.position.z - dl/2, iz2 = mesh.position.z + dl/2;
+  let supportTop = 0;
+  for (const other of itemMeshes) {
+    if (other.mesh === mesh) continue;
+    const [ow, ol, oh] = other.dims;
+    const ox1 = other.mesh.position.x - ow/2, ox2 = other.mesh.position.x + ow/2;
+    const oz1 = other.mesh.position.z - ol/2, oz2 = other.mesh.position.z + ol/2;
+    const xOv = Math.min(ix2, ox2) - Math.max(ix1, ox1);
+    const zOv = Math.min(iz2, oz2) - Math.max(iz1, oz1);
+    if (xOv > 0.001 && zOv > 0.001) {
+      const otherTop = other.mesh.position.y + oh/2;
+      if (otherTop > supportTop) supportTop = otherTop;
+    }
+  }
+
+  // If user explicitly lifted the box high above the support, respect it (snap to integer Y).
+  // Otherwise, gravity-snap to support surface.
+  const myBottom = mesh.position.y - dh/2;
+  const liftedAbove = myBottom - supportTop;
+  if (liftedAbove > 1.5) {
+    // Honor manual lift: integer-snap Y, not below support
+    let lz = Math.max(supportTop, Math.round(myBottom));
+    // Clamp to grid height if inside a grid
+    if (gidx !== -1) {
+      const gh = lastGrids[gidx][0][2];
+      lz = Math.min(lz, gh - dh);
+    }
+    mesh.position.y = lz + dh/2;
+  } else {
+    // Snap to support surface (floor or top of stack)
+    let lz = supportTop;
+    if (gidx !== -1) {
+      const gh = lastGrids[gidx][0][2];
+      lz = Math.min(lz, gh - dh);
+    }
+    mesh.position.y = lz + dh/2;
+  }
 }
 
 function updateValidity(r) {
@@ -770,6 +949,8 @@ try {
   init();
   window.__rendererReady = true;
   document.getElementById('hud').textContent = 'Ready · awaiting packing result';
+  // First-launch nudge: show a brief tip about camera + help.
+  showTip('Drag empty space to orbit · scroll to zoom · click <kbd>?</kbd> for full controls', 6000);
 } catch (e) {
   showErr('[init] ' + (e.message || e) + '\n' + (e.stack || ''));
 }
