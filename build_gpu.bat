@@ -20,7 +20,7 @@ if not exist .venv-gpu (
     call .venv-gpu\Scripts\activate.bat
 )
 
-set BUILD_VARIANT=gpu
+set "BUILD_VARIANT=gpu"
 echo [build_gpu] Running PyInstaller...
 pyinstaller --noconfirm app.spec || goto :err
 

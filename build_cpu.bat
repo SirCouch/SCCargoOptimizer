@@ -17,7 +17,7 @@ if not exist .venv-cpu (
     call .venv-cpu\Scripts\activate.bat
 )
 
-set BUILD_VARIANT=cpu
+set "BUILD_VARIANT=cpu"
 echo [build_cpu] Running PyInstaller...
 pyinstaller --noconfirm app.spec || goto :err
 

@@ -15,15 +15,29 @@ from PyInstaller.utils.hooks import collect_all
 block_cipher = None
 
 # Tag the dist folder by build variant so CPU and GPU builds can coexist.
-VARIANT = os.environ.get("BUILD_VARIANT", "gpu").lower()
+VARIANT = os.environ.get("BUILD_VARIANT", "gpu").strip().lower()
 DIST_NAME = f"SCCargoOptimizer-{VARIANT}"
 
 # Collect dynamically-loaded packages. torch and torch_geometric pull in many
 # C extensions and submodules at runtime, so collect_all is the safe option.
 torch_d, torch_b, torch_h = collect_all("torch")
 tg_d, tg_b, tg_h = collect_all("torch_geometric")
-pyside_d, pyside_b, pyside_h = collect_all("PySide6")
 shiboken_d, shiboken_b, shiboken_h = collect_all("shiboken6")
+
+# PySide6: only the modules we actually use. PyInstaller's per-module hooks
+# (e.g. hook-PySide6.QtWidgets.py) pull in their required binaries automatically.
+# Avoid collect_all here — it would drag in Qt3D, QtMultimedia, QtNfc, QtQuick3D,
+# QtPdf, etc., which roughly doubles the bundle size for no benefit.
+pyside_d = []
+pyside_b = []
+pyside_h = [
+    "PySide6.QtCore",
+    "PySide6.QtGui",
+    "PySide6.QtWidgets",
+    "PySide6.QtNetwork",         # required by QtWebEngine
+    "PySide6.QtWebEngineCore",
+    "PySide6.QtWebEngineWidgets",
+]
 
 # Optional torch_geometric companions — collect if present, skip if not.
 optional_collected = []
