@@ -25,33 +25,13 @@ pip install PySide6 torch torch-geometric numpy
 python src/desktop_app.py
 ```
 
-## Build distributable .exe (Windows)
-
-Two variants are built into separate folders so they don't conflict:
-
-```cmd
-build_cpu.bat    REM ~600 MB output. Works on any machine, CPU inference.
-build_gpu.bat    REM ~3 GB output. Requires NVIDIA GPU + CUDA 12.x at runtime.
-```
-
-First run of either creates a dedicated venv (`.venv-cpu` or `.venv-gpu`) and
-downloads its own PyTorch flavor — subsequent rebuilds reuse the venv.
-
-Output:
-
-```
-dist/SCCargoOptimizer-cpu/SCCargoOptimizer.exe
-dist/SCCargoOptimizer-gpu/SCCargoOptimizer.exe
-```
-
-Distribute by zipping the entire `SCCargoOptimizer-<variant>/` folder. User
-data (presets, window state) is stored at
-`%APPDATA%\StarCitizen\CargoOptimizer\` so it survives version updates.
-
 Models (`small_gnn_model.pt` / `medium_gnn_model.pt` / `large_gnn_model.pt`) are
 bundled in this repo. The training pipeline lives in the separate
 [3d-Bin-packing-StarCitizen](https://github.com/SirCouch/3d-Bin-packing-StarCitizen)
 repo — that's where you go to retrain or modify the models.
+
+User data (presets, window state) is stored at
+`%APPDATA%\StarCitizen\CargoOptimizer\` so it survives version updates.
 
 ## Project structure
 
