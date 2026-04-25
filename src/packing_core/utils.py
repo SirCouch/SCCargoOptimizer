@@ -6,10 +6,12 @@ import torch.nn.functional as F
 import numpy as np
 import random
 import torch.optim as optim
-import matplotlib
-matplotlib.use('Agg')  # non-interactive backend — plt.show() becomes a no-op
-import matplotlib.pyplot as plt
 from collections import deque
+
+# matplotlib is only used by the training-only helpers (plot_training_curves,
+# evaluate_agent visualization). Lazy-imported there so the app bundle doesn't
+# need matplotlib installed.
+plt = None
 from torch_geometric.data import Batch
 from .drl_env import DRLBinPackingEnv
 from .models import ActorGNN, CriticGNN, SharedGNNBackbone
@@ -465,6 +467,9 @@ def train_agent(num_episodes=1000, gamma=0.95, gae_lambda=0.95,
 
 def plot_training_curves(rewards, actor_losses, critic_losses):
             """Plot training metrics"""
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
             plt.figure(figsize=(15, 5))
 
             plt.subplot(1, 3, 1)
