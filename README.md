@@ -18,7 +18,27 @@ trained Graph Attention Network (GAT) models.
 - **Ensemble inference** — three size-specialized models (small / medium / large)
   selected automatically based on ship total SCU capacity
 
-## Run from source
+## Install
+
+### From a release (recommended)
+
+1. Go to [Releases](https://github.com/SirCouch/SCCargoOptimizer/releases) and download
+   the latest `SCCargoOptimizer-vX.Y.Z-windows-cpu.zip`.
+2. Right-click the zip → **Properties** → check **Unblock** if the option is shown,
+   then click **OK**. (Windows marks downloads from the internet as untrusted; without
+   this, the bundled DLLs may be quarantined.)
+3. Extract the zip anywhere — e.g. `C:\Tools\SCCargoOptimizer\`. The folder is
+   self-contained; nothing else needs to be installed.
+4. Run `SCCargoOptimizer.exe` from inside the extracted folder. First launch may take
+   a few seconds while Qt and the model files load.
+
+Windows SmartScreen will warn that the publisher is unverified — click **More info →
+Run anyway**. The build is unsigned. User data (presets, window state) is written to
+`%APPDATA%\StarCitizen\CargoOptimizer\` and survives upgrades.
+
+To upgrade, delete the old folder and extract the new zip. Your presets stay put.
+
+### From source
 
 ```bash
 pip install PySide6 torch torch-geometric numpy
@@ -29,9 +49,6 @@ Models (`small_gnn_model.pt` / `medium_gnn_model.pt` / `large_gnn_model.pt`) are
 bundled in this repo. The training pipeline lives in the separate
 [3d-Bin-packing-StarCitizen](https://github.com/SirCouch/3d-Bin-packing-StarCitizen)
 repo — that's where you go to retrain or modify the models.
-
-User data (presets, window state) is stored at
-`%APPDATA%\StarCitizen\CargoOptimizer\` so it survives version updates.
 
 ## Project structure
 
