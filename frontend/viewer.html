@@ -88,6 +88,7 @@
   <div class="row"><span class="k">Snap on drop</span><span>Integer cells + gravity (toggle <kbd>Snap</kbd>)</span></div>
   <div class="row"><span class="k">Collisions</span><span>Red tint = blocked · drop reverts</span></div>
   <div class="row"><span class="k">Inspect</span><span>Click a box (no drag)</span></div>
+  <div class="row"><span class="k">Rotate 90°</span><span>Select box, press <kbd>R</kbd></span></div>
   <h4>Unplaced Items</h4>
   <div class="row"><span class="k">Where</span><span>Amber zone, right side</span></div>
   <div class="row"><span class="k">Use</span><span>Drag into a grid</span></div>
@@ -197,8 +198,17 @@ function init() {
   mouse = new THREE.Vector2();
   renderer.domElement.addEventListener('click', onCanvasClick);
 
+  window.addEventListener('keydown', onKeyDown);
   window.addEventListener('resize', onResize);
   animate();
+}
+
+function onKeyDown(event) {
+  if (event.key !== 'r' && event.key !== 'R') return;
+  const tag = (event.target && event.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  if (!selectedMesh) return;
+  rotateItem(selectedMesh.userData);
 }
 
 function onResize() {
@@ -756,6 +766,29 @@ function setCollisionTint(r, colliding) {
   }
 }
 
+function rotateItem(r) {
+  // Z-axis rotation (around vertical) swaps the X/Y footprint — matches the env's
+  // training-time rotation constraint (height locked). Reverts on collision.
+  if (!r) return false;
+  const [dw, dl, dh] = r.dims;
+  if (dw === dl) return false;  // square footprint — visual no-op
+  r.dims = [dl, dw, dh];
+  r.mesh.rotation.y += Math.PI / 2;
+  r.edge.rotation.y += Math.PI / 2;
+
+  if (isColliding(r)) {
+    r.mesh.rotation.y -= Math.PI / 2;
+    r.edge.rotation.y -= Math.PI / 2;
+    r.dims = [dw, dl, dh];
+    return false;
+  }
+
+  r.base.copy(r.mesh.position);
+  r.info.dims = [r.dims[0], r.dims[1], r.dims[2]];
+  updateValidity(r);
+  return true;
+}
+
 function selectItem(mesh) {
   if (selectedMesh && originalMaterial) selectedMesh.material = originalMaterial;
   selectedMesh = mesh;
@@ -920,14 +953,20 @@ function showInfo(r) {
   let badge = '<span class="badge placed">Placed</span>';
   if (r.unplaced) badge = '<span class="badge unplaced">Unplaced</span>';
   if (info.grid === 'Outside') badge = '<span class="badge outside">Outside Grid</span>';
+  const square = (dims[0] === dims[1]);
   document.getElementById('info').innerHTML = `
     <div class="ttl">${info.scu}${badge}</div>
     <div class="row"><span class="k">Priority</span><span>P${info.priority}</span></div>
     <div class="row"><span class="k">Grid</span><span>${info.grid}</span></div>
     <div class="row"><span class="k">Position</span><span>${pos[0]}, ${pos[1]}, ${pos[2]}</span></div>
     <div class="row"><span class="k">Dimensions</span><span>${dims[0].toFixed(0)} × ${dims[1].toFixed(0)} × ${dims[2].toFixed(0)}</span></div>
+    <div style="margin-top:8px;">
+      <button id="rotateBtn" ${square ? 'disabled style="opacity:0.5;cursor:not-allowed"' : ''}>Rotate 90° (R)</button>
+    </div>
   `;
   document.getElementById('info').style.display = 'block';
+  const btn = document.getElementById('rotateBtn');
+  if (btn && !square) btn.onclick = () => rotateItem(r);
 }
 
 function makeTextSprite(text, color) {
