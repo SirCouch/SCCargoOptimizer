@@ -24,9 +24,7 @@ trained Graph Attention Network (GAT) models.
 
 1. Go to [Releases](https://github.com/SirCouch/SCCargoOptimizer/releases) and download
    the latest `SCCargoOptimizer-vX.Y.Z-windows-cpu.zip`.
-2. Right-click the zip → **Properties** → check **Unblock** if the option is shown,
-   then click **OK**. (Windows marks downloads from the internet as untrusted; without
-   this, the bundled DLLs may be quarantined.)
+2. Right-click the zip.
 3. Extract the zip anywhere — e.g. `C:\Tools\SCCargoOptimizer\`. The folder is
    self-contained; nothing else needs to be installed.
 4. Run `SCCargoOptimizer.exe` from inside the extracted folder. First launch may take
