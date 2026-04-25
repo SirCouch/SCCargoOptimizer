@@ -28,6 +28,7 @@ def _resource_root() -> Path:
 
 APP_ORG = "StarCitizen"
 APP_NAME = "CargoOptimizer"
+APP_VERSION = "0.1.0"
 
 
 def _user_data_dir() -> Path:
@@ -364,7 +365,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Star Citizen Cargo Optimizer")
+        self.setWindowTitle(f"Star Citizen Cargo Optimizer v{APP_VERSION}")
         self.resize(1200, 800)
 
         self.settings = QSettings(self.SETTINGS_ORG, self.SETTINGS_APP)
@@ -579,7 +580,7 @@ class MainWindow(QMainWindow):
                          f"{d[0]}×{d[1]}×{d[2]} ({vol} SCU)")
         self.grid_info.setText("<br>".join(parts))
         self._update_capacity_label()
-        self.setWindowTitle(f"Star Citizen Cargo Optimizer — {ship['name']}")
+        self.setWindowTitle(f"Star Citizen Cargo Optimizer v{APP_VERSION} — {ship['name']}")
 
     def _ship_capacity(self):
         ship = self._selected_ship()
