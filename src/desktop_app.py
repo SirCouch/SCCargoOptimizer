@@ -28,7 +28,7 @@ def _resource_root() -> Path:
 
 APP_ORG = "StarCitizen"
 APP_NAME = "CargoOptimizer"
-APP_VERSION = "0.1.2"
+APP_VERSION = "0.1.3"
 
 
 def _user_data_dir() -> Path:

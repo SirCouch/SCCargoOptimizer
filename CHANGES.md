@@ -1,5 +1,21 @@
 # Changes
 
+## v0.1.3
+
+### New
+- **Cargo grid cutouts.** Ship grids can now define optional `blocked` cuboids with
+  `position`, `dimensions`, and `supports` fields. Inference treats these as fixed
+  obstacles, carves them out of MER space, and excludes them from placement output.
+- **Usable-volume routing and metrics.** Model routing, utilization, manifest generation,
+  rewards, and capacity display now use bounding volume minus blocked volume.
+- **Viewer blocker support.** The 3D viewer preserves object-shaped grid payloads,
+  renders cutouts as fixed blockers, and includes them in drag collision/support checks.
+
+### Changed
+- Desktop payload handling now keeps full grid metadata instead of reducing grids to
+  `[dimensions, name]`.
+- Added repository contributor guidance in `AGENTS.md`.
+
 ## v0.1.2
 
 ### New
