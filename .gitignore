@@ -31,3 +31,6 @@ Thumbs.db
 .claude/
 CLAUDE.md
 .mcp.json
+AGENTS.md
+# Grid layout editor safety backup (tools/grid_layout_editor.py)
+ships_cargo_grids.json.bak

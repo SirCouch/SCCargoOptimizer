@@ -48,6 +48,22 @@ bundled in this repo. The training pipeline lives in the separate
 [3d-Bin-packing-StarCitizen](https://github.com/SirCouch/3d-Bin-packing-StarCitizen)
 repo — that's where you go to retrain or modify the models.
 
+## Dev tools
+
+Ship cargo grid layouts can be edited with the dev-only layout editor:
+
+```bash
+python tools/grid_layout_editor.py
+```
+
+The editor opens a local browser tool for moving each ship's cargo grids and
+saving optional `layout: {position: [x, y, z]}` metadata into
+`ships_cargo_grids.json`. Rotation is baked into grid `dimensions` and blocked
+cuboids, so the app only translates laid-out grids at runtime. It writes
+`ships_cargo_grids.json.bak` before saving. The `tools/` folder is not
+referenced by `app.spec`, so this editor is not bundled into the final desktop
+app.
+
 ## Project structure
 
 ```
@@ -59,6 +75,8 @@ sc-cargo-optimizer/
 ├── frontend/
 │   ├── viewer.html               # Three.js scene + custom drag controls
 │   └── vendor/three/             # Three.js + OrbitControls + DragControls
+├── tools/
+│   └── grid_layout_editor.py     # dev-only grid layout editor
 └── src/
     ├── desktop_app.py            # PySide6 GUI entry point
     ├── ensemble_inference.py     # routes to specialized model by ship volume

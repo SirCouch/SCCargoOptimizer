@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Grid Layout Editor (dev)</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3; --muted:#8b949e;
+          --accent:#58a6ff; --good:#3fb950; --bad:#f85149; --warn:#d29922; }
+  html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--fg);
+               font-family:-apple-system,"Segoe UI",Roboto,sans-serif; font-size:13px; overflow:hidden; }
+  #bar { position:absolute; top:0; left:0; right:0; height:44px; background:var(--panel);
+         border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px;
+         padding:0 12px; z-index:10; }
+  #bar .tag { background:var(--warn); color:#000; font-weight:700; font-size:10px;
+              padding:2px 6px; border-radius:3px; letter-spacing:0.5px; }
+  select, button, input { background:#21262d; color:var(--fg); border:1px solid var(--border);
+          border-radius:4px; padding:4px 8px; font-family:inherit; font-size:12px; }
+  button { cursor:pointer; }
+  button:hover { border-color:var(--muted); }
+  button.primary { background:var(--good); color:#04140a; font-weight:600; }
+  #status { margin-left:auto; color:var(--muted); font-size:12px; }
+  #status.ok { color:var(--good); } #status.err { color:var(--bad); }
+  #canvas-wrap { position:absolute; top:44px; left:0; right:240px; bottom:0; }
+  #side { position:absolute; top:44px; right:0; bottom:0; width:240px; background:var(--panel);
+          border-left:1px solid var(--border); padding:10px; box-sizing:border-box;
+          overflow-y:auto; z-index:10; }
+  #side h4 { margin:10px 0 6px 0; font-size:10px; text-transform:uppercase; color:var(--muted);
+             letter-spacing:0.6px; }
+  #side h4:first-child { margin-top:0; }
+  #gridlist div { padding:4px 8px; border-radius:4px; cursor:pointer; display:flex;
+                  justify-content:space-between; }
+  #gridlist div:hover { background:#21262d; }
+  #gridlist div.sel { background:var(--accent); color:#04121f; font-weight:600; }
+  #gridlist .dims { color:var(--muted); font-size:11px; }
+  #gridlist div.sel .dims { color:#04121f; }
+  #selpanel label { display:flex; align-items:center; justify-content:space-between;
+                    margin:4px 0; color:var(--muted); }
+  #selpanel input { width:70px; text-align:right; }
+  #selpanel button { width:100%; margin-top:6px; }
+  #help { color:var(--muted); font-size:11px; line-height:1.7; }
+  #help kbd { background:#21262d; border:1px solid var(--border); border-radius:3px;
+              padding:0 5px; font-family:Consolas,monospace; font-size:10px; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span class="tag">DEV TOOL</span>
+  <label>Ship <select id="shipSelect"></select></label>
+  <label>Snap <select id="snapSelect">
+    <option value="1" selected>1 SCU</option>
+    <option value="0.5">0.5 SCU</option>
+    <option value="0">Free</option>
+  </select></label>
+  <button class="primary" id="saveBtn" title="Write all edited layout positions into ships_cargo_grids.json (a .bak backup is kept)">Save Layout</button>
+  <button id="revertBtn" title="Reload ships_cargo_grids.json from disk, discarding unsaved edits">Revert</button>
+  <button id="clearBtn" title="Remove saved layout for this ship (back to the auto-row); press Save to persist">Clear Layout</button>
+  <span id="status"></span>
+</div>
+<div id="canvas-wrap"></div>
+<div id="side">
+  <h4>Grids</h4>
+  <div id="gridlist"></div>
+  <h4>Selected</h4>
+  <div id="selpanel"><span style="color:var(--muted)">Click a grid to select</span></div>
+  <h4>Controls</h4>
+  <div id="help">
+    <div><kbd>Drag</kbd> move on deck plane</div>
+    <div><kbd>Shift</kbd>+<kbd>drag</kbd> raise / lower</div>
+    <div><kbd>R</kbd> rotate 90° (bakes into dims + cutouts)</div>
+    <div><kbd>←→↑↓</kbd> nudge · <kbd>PgUp</kbd>/<kbd>PgDn</kbd> lift</div>
+    <div><kbd>Esc</kbd> deselect · empty-space drag orbits</div>
+    <div style="margin-top:6px">Axes: <b style="color:#e5534b">X</b> width ·
+      <b style="color:#57ab5a">Y</b> up · <b style="color:#539bf5">Z</b> ship length (+FWD)</div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "/frontend/vendor/three/three.module.js",
+    "three/addons/": "/frontend/vendor/three/addons/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const GRID_GAP = 2.0;
+const COLORS = ['#1b8abd', '#3ca059', '#c8800d', '#8b5dce', '#e14660',
+                '#06999a', '#b0813a', '#5e7cd9', '#9b6a4f'];
+
+let doc = null;             // full ships_cargo_grids.json document
+let shipIdx = 0;
+let records = [];           // per grid: {grid, group, box, edge, label, idx}
+let selected = null;
+let dragState = null;
+
+// JSON [x, y, z] (z vertical) <-> world (x, y=up, z=length)
+const worldFromJson = p => new THREE.Vector3(p[0], p[2], p[1]);
+const jsonFromWorld = v => [round3(v.x), round3(v.z), round3(v.y)];
+const round3 = n => Math.round(n * 1000) / 1000;
+
+// ---- scene ------------------------------------------------------------------
+const wrap = document.getElementById('canvas-wrap');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#0d1117');
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+wrap.appendChild(renderer.domElement);
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.enableDamping = true;
+orbit.dampingFactor = 0.08;
+orbit.maxPolarAngle = Math.PI / 2 - 0.02;
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+const key = new THREE.DirectionalLight(0xffffff, 0.7);
+key.position.set(30, 50, 20);
+scene.add(key);
+const ground = new THREE.GridHelper(120, 120, 0x2a313a, 0x1c2128);
+scene.add(ground);
+scene.add(new THREE.AxesHelper(6));
+const raycaster = new THREE.Raycaster();
+
+function resize() {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+(function animate() {
+  requestAnimationFrame(animate);
+  orbit.update();
+  renderer.render(scene, camera);
+})();
+
+// ---- data -------------------------------------------------------------------
+async function loadDoc() {
+  const res = await fetch('/ships_cargo_grids.json?t=' + Date.now());
+  doc = await res.json();
+}
+
+function ship() { return doc.ships[shipIdx]; }
+
+function hasLayoutPosition(grid) {
+  return !!(grid.layout && Array.isArray(grid.layout.position) && grid.layout.position.length === 3);
+}
+
+function ensureAllLayouts() {
+  let added = 0;
+  for (const s of doc.ships || []) {
+    let autoCursor = 0;
+    for (const grid of s.grids || []) {
+      const [w] = grid.dimensions;
+      let pos;
+      if (hasLayoutPosition(grid)) {
+        pos = worldFromJson(grid.layout.position);
+      } else {
+        pos = new THREE.Vector3(autoCursor, 0, 0);
+        grid.layout = { position: jsonFromWorld(pos) };
+        added++;
+      }
+      autoCursor = Math.max(autoCursor, pos.x + w + GRID_GAP);
+    }
+  }
+  return added;
+}
+
+// Rotate a grid's *data* 90° (counter-clockwise viewed from above): swap the
+// footprint dims and remap every blocked cuboid. Applying it four times is the
+// identity. Rotation is baked into the JSON so the app never needs a rotation
+// transform — layout stays a pure translation.
+function rotateGridData(grid) {
+  const [w, l, h] = grid.dimensions;
+  grid.dimensions = [l, w, h];
+  if (Array.isArray(grid.blocked)) {
+    grid.blocked = grid.blocked.map(b => ({
+      position: [l - b.position[1] - b.dimensions[1], b.position[0], b.position[2]],
+      dimensions: [b.dimensions[1], b.dimensions[0], b.dimensions[2]],
+      supports: b.supports !== false,
+    }));
+  }
+}
+
+// ---- scene build ------------------------------------------------------------
+function makeLabel(text) {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 128;
+  const g = c.getContext('2d');
+  g.font = 'bold 56px "Segoe UI", sans-serif';
+  g.fillStyle = '#e6edf3';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(text, 256, 64);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(c), transparent: true }));
+  sprite.scale.set(5, 1.25, 1);
+  return sprite;
+}
+
+function clearShipScene() {
+  for (const r of records) scene.remove(r.group);
+  records = [];
+  selected = null;
+  dragState = null;
+}
+
+function buildShipScene(keepPositions) {
+  const prev = keepPositions ? records.map(r => r.group.position.clone()) : null;
+  clearShipScene();
+  const grids = ship().grids || [];
+  let autoCursor = 0;
+  grids.forEach((grid, i) => {
+    const [w, l, h] = grid.dimensions;
+    const group = new THREE.Group();
+    if (prev && prev[i]) {
+      group.position.copy(prev[i]);
+    } else if (hasLayoutPosition(grid)) {
+      group.position.copy(worldFromJson(grid.layout.position));
+    } else {
+      group.position.set(autoCursor, 0, 0);
+    }
+    autoCursor = Math.max(autoCursor, group.position.x + w + GRID_GAP);
+
+    const color = COLORS[i % COLORS.length];
+    const geo = new THREE.BoxGeometry(w, h, l);
+    const box = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+      color, transparent: true, opacity: 0.32, roughness: 0.7 }));
+    box.position.set(w/2, h/2, l/2);
+    group.add(box);
+    const edge = new THREE.LineSegments(new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({ color }));
+    edge.position.copy(box.position);
+    group.add(edge);
+
+    for (const b of grid.blocked || []) {
+      const [bx, by, bz] = b.position;
+      const [bw, bl, bh] = b.dimensions;
+      const bGeo = new THREE.BoxGeometry(bw, bh, bl);
+      const bBox = new THREE.Mesh(bGeo, new THREE.MeshBasicMaterial({
+        color: b.supports === false ? '#f85149' : '#8b949e',
+        transparent: true, opacity: 0.35 }));
+      bBox.position.set(bx + bw/2, bz + bh/2, by + bl/2);
+      group.add(bBox);
+      const bEdge = new THREE.LineSegments(new THREE.EdgesGeometry(bGeo),
+        new THREE.LineBasicMaterial({ color: b.supports === false ? '#f85149' : '#8b949e' }));
+      bEdge.position.copy(bBox.position);
+      group.add(bEdge);
+    }
+
+    const label = makeLabel(grid.name || `Grid ${i + 1}`);
+    label.position.set(w/2, h + 0.9, l/2);
+    group.add(label);
+
+    scene.add(group);
+    records.push({ grid, group, box, edge, label, idx: i });
+  });
+  renderGridList();
+  renderSelPanel();
+}
+
+function frameShip() {
+  let minX = 0, maxX = 1, minZ = 0, maxZ = 1, maxY = 2;
+  records.forEach(r => {
+    const [w, l, h] = r.grid.dimensions;
+    const p = r.group.position;
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x + w);
+    minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z + l);
+    maxY = Math.max(maxY, p.y + h);
+  });
+  const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+  const span = Math.max(maxX - minX, maxZ - minZ, maxY * 3, 12);
+  camera.position.set(cx + span * 0.55, span * 0.8, cz + span * 0.95);
+  orbit.target.set(cx, maxY / 3, cz);
+}
+
+// ---- selection & side panel ---------------------------------------------------
+function setSelected(rec) {
+  if (selected) {
+    selected.box.material.emissive.set('#000000');
+    selected.box.material.emissiveIntensity = 0;
+  }
+  selected = rec;
+  if (rec) {
+    rec.box.material.emissive.set('#58a6ff');
+    rec.box.material.emissiveIntensity = 0.5;
+  }
+  renderGridList();
+  renderSelPanel();
+}
+
+function renderGridList() {
+  const el = document.getElementById('gridlist');
+  el.innerHTML = '';
+  records.forEach(rec => {
+    const d = rec.grid.dimensions;
+    const row = document.createElement('div');
+    row.className = rec === selected ? 'sel' : '';
+    row.innerHTML = `<span>${rec.grid.name || 'Grid ' + (rec.idx + 1)}</span>` +
+                    `<span class="dims">${d[0]}×${d[1]}×${d[2]}</span>`;
+    row.onclick = () => setSelected(rec);
+    el.appendChild(row);
+  });
+}
+
+function renderSelPanel() {
+  const el = document.getElementById('selpanel');
+  if (!selected) {
+    el.innerHTML = '<span style="color:var(--muted)">Click a grid to select</span>';
+    return;
+  }
+  const d = selected.grid.dimensions;
+  const p = jsonFromWorld(selected.group.position);
+  el.innerHTML = `
+    <div style="font-weight:600; margin-bottom:4px;">${selected.grid.name || ''}
+      <span style="color:var(--muted); font-weight:400;">${d[0]}×${d[1]}×${d[2]}</span></div>
+    <label>X (width) <input type="number" step="0.5" id="posX" value="${p[0]}"></label>
+    <label>Y (length) <input type="number" step="0.5" id="posY" value="${p[1]}"></label>
+    <label>Z (up) <input type="number" step="0.5" id="posZ" value="${p[2]}"></label>
+    <button id="rotBtn">Rotate 90° (R)</button>`;
+  for (const id of ['posX', 'posY', 'posZ']) {
+    document.getElementById(id).onchange = () => {
+      const v = ['posX', 'posY', 'posZ'].map(k => parseFloat(document.getElementById(k).value) || 0);
+      selected.group.position.copy(worldFromJson(v));
+      if (selected.group.position.y < 0) selected.group.position.y = 0;
+    };
+  }
+  document.getElementById('rotBtn').onclick = () => rotateSelected();
+}
+
+function refreshSelInputs() {
+  if (!selected) return;
+  const p = jsonFromWorld(selected.group.position);
+  const ids = ['posX', 'posY', 'posZ'];
+  ids.forEach((id, i) => {
+    const input = document.getElementById(id);
+    if (input && document.activeElement !== input) input.value = p[i];
+  });
+}
+
+// ---- interactions -------------------------------------------------------------
+function snapStep() { return parseFloat(document.getElementById('snapSelect').value); }
+function snapVal(v) { const s = snapStep(); return s > 0 ? Math.round(v / s) * s : v; }
+
+function pickRecord(event) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const m = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1,
+                              -((event.clientY - rect.top) / rect.height) * 2 + 1);
+  raycaster.setFromCamera(m, camera);
+  const hits = raycaster.intersectObjects(records.map(r => r.box), false);
+  if (!hits.length) return null;
+  return records.find(r => r.box === hits[0].object) || null;
+}
+
+function planeHit(event, plane) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const m = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1,
+                              -((event.clientY - rect.top) / rect.height) * 2 + 1);
+  raycaster.setFromCamera(m, camera);
+  const out = new THREE.Vector3();
+  return raycaster.ray.intersectPlane(plane, out) ? out : null;
+}
+
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  const rec = pickRecord(e);
+  if (!rec) { setSelected(null); return; }
+  e.stopImmediatePropagation();
+  setSelected(rec);
+  const vertical = e.shiftKey;
+  const plane = new THREE.Plane();
+  if (vertical) {
+    const n = new THREE.Vector3();
+    camera.getWorldDirection(n);
+    n.y = 0;
+    if (n.lengthSq() < 1e-6) n.set(0, 0, 1);
+    n.normalize();
+    plane.setFromNormalAndCoplanarPoint(n, rec.group.position);
+  } else {
+    plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), rec.group.position);
+  }
+  const hit = planeHit(e, plane);
+  if (!hit) return;
+  orbit.enabled = false;
+  dragState = { rec, plane, vertical, offset: hit.clone().sub(rec.group.position) };
+}, true);
+
+window.addEventListener('pointermove', (e) => {
+  if (!dragState) return;
+  const hit = planeHit(e, dragState.plane);
+  if (!hit) return;
+  const pos = hit.clone().sub(dragState.offset);
+  const rec = dragState.rec;
+  if (dragState.vertical) {
+    rec.group.position.y = Math.max(0, snapVal(pos.y));
+  } else {
+    rec.group.position.x = snapVal(pos.x);
+    rec.group.position.z = snapVal(pos.z);
+  }
+  refreshSelInputs();
+});
+
+window.addEventListener('pointerup', () => {
+  if (!dragState) return;
+  dragState = null;
+  orbit.enabled = true;
+});
+
+function rotateSelected() {
+  if (!selected) return;
+  const rec = selected;
+  const [w, l] = rec.grid.dimensions;
+  const center = rec.group.position.clone().add(new THREE.Vector3(w/2, 0, l/2));
+  rotateGridData(rec.grid);
+  const [nw, , ] = rec.grid.dimensions;
+  const nl = rec.grid.dimensions[1];
+  const newPos = new THREE.Vector3(snapVal(center.x - nw/2), rec.group.position.y,
+                                   snapVal(center.z - nl/2));
+  const idx = rec.idx;
+  buildShipScene(true);
+  records[idx].group.position.copy(newPos);
+  setSelected(records[idx]);
+  setStatus('Rotated (unsaved)', '');
+}
+
+window.addEventListener('keydown', (e) => {
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if (e.key === 'Escape') { setSelected(null); return; }
+  if (!selected) return;
+  if (e.key === 'r' || e.key === 'R') { rotateSelected(); return; }
+  const step = snapStep() || 1;
+  const move = {
+    ArrowLeft: [-step, 0, 0], ArrowRight: [step, 0, 0],
+    ArrowUp: [0, 0, -step], ArrowDown: [0, 0, step],
+    PageUp: [0, step, 0], PageDown: [0, -step, 0],
+  }[e.key];
+  if (!move) return;
+  e.preventDefault();
+  selected.group.position.x += move[0];
+  selected.group.position.y = Math.max(0, selected.group.position.y + move[1]);
+  selected.group.position.z += move[2];
+  refreshSelInputs();
+});
+
+// ---- toolbar ------------------------------------------------------------------
+function setStatus(text, cls) {
+  const el = document.getElementById('status');
+  el.textContent = text;
+  el.className = cls || '';
+  clearTimeout(el.__t);
+  if (text) el.__t = setTimeout(() => { el.textContent = ''; el.className = ''; }, 4000);
+}
+
+function bakeCurrentLayout() {
+  records.forEach(rec => {
+    rec.grid.layout = { position: jsonFromWorld(rec.group.position) };
+  });
+}
+
+async function save() {
+  bakeCurrentLayout();
+  const added = ensureAllLayouts();
+  const res = await fetch('/api/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(doc),
+  });
+  const out = await res.json().catch(() => ({ ok: false, error: 'bad response' }));
+  if (out.ok) {
+    const note = added ? ` · filled ${added} missing` : '';
+    setStatus(`Saved all layouts${note} · backup: ${out.backup}`, 'ok');
+  }
+  else setStatus(`Save failed: ${out.error}`, 'err');
+  return out;
+}
+
+document.getElementById('saveBtn').onclick = save;
+document.getElementById('revertBtn').onclick = async () => {
+  await loadDoc();
+  populateShips();
+  buildShipScene(false);
+  frameShip();
+  setStatus('Reverted to file on disk', '');
+};
+document.getElementById('clearBtn').onclick = () => {
+  for (const g of ship().grids || []) delete g.layout;
+  buildShipScene(false);
+  frameShip();
+  setStatus('Layout cleared (press Save to persist)', '');
+};
+document.getElementById('shipSelect').onchange = (e) => {
+  bakeCurrentLayout();
+  shipIdx = parseInt(e.target.value);
+  buildShipScene(false);
+  frameShip();
+};
+
+function populateShips() {
+  const sel = document.getElementById('shipSelect');
+  sel.innerHTML = doc.ships.map((s, i) => `<option value="${i}">${s.name}</option>`).join('');
+  if (shipIdx >= doc.ships.length) shipIdx = 0;
+  sel.value = shipIdx;
+}
+
+// Test hooks (mirrors the main viewer's __viewerDebug pattern).
+window.__editorDebug = {
+  ready: () => !!doc,
+  shipCount: () => doc.ships.length,
+  setShip: (i) => { bakeCurrentLayout(); shipIdx = i; document.getElementById('shipSelect').value = i;
+                    buildShipScene(false); frameShip(); },
+  gridCount: () => records.length,
+  gridData: (i) => JSON.parse(JSON.stringify(records[i].grid)),
+  origin: (i) => jsonFromWorld(records[i].group.position),
+  setOrigin: (i, p) => { records[i].group.position.copy(worldFromJson(p)); refreshSelInputs(); },
+  select: (i) => setSelected(records[i]),
+  rotate: () => rotateSelected(),
+  save: () => save(),
+  screenXY: (i) => {
+    const r = records[i];
+    const [w, l, h] = r.grid.dimensions;
+    const v = r.group.position.clone().add(new THREE.Vector3(w/2, h/2, l/2)).project(camera);
+    const rect = renderer.domElement.getBoundingClientRect();
+    return [rect.left + (v.x + 1) / 2 * rect.width, rect.top + (1 - v.y) / 2 * rect.height];
+  },
+};
+
+// ---- boot -----------------------------------------------------------------
+await loadDoc();
+populateShips();
+resize();
+buildShipScene(false);
+frameShip();
+</script>
+</body>
+</html>

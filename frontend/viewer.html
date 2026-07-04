@@ -173,7 +173,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const STYLES = {
   modern: { label: 'Modern', pixel: false, renderScale: 1, amb: 0.55, key: 0.9, fill: 0.35 },
-  retro:  { label: '8-Bit',  pixel: true,  renderScale: 0.45, amb: 0.85, key: 0.45, fill: 0.0 },
+  retro:  { label: '8-Bit',  pixel: true,  renderScale: 1, amb: 0.85, key: 0.45, fill: 0.0 },
 };
 
 const PALETTES = {
@@ -300,6 +300,12 @@ function gridBlocked(g) {
   return (Array.isArray(g) ? g[2] : g.blocked) || [];
 }
 
+// Optional saved placement of the grid within its ship (dev layout editor).
+function gridLayout(g) {
+  const l = Array.isArray(g) ? null : g.layout;
+  return (l && Array.isArray(l.position) && l.position.length === 3) ? l : null;
+}
+
 function blockerPosition(b) {
   return Array.isArray(b) ? b[0] : b.position;
 }
@@ -359,18 +365,18 @@ function init() {
   animate();
 }
 
-// The canvas is always full resolution. For the 8-bit style the scene is first
-// rendered into a low-res target, then blitted to the canvas with nearest-
-// neighbor sampling — crisp square pixels, no reliance on CSS upscaling
-// (which some compositors filter bilinearly, turning the retro look blurry).
+// The canvas stays full resolution for readable cargo inspection. Styles can
+// opt into a scaled pass by setting renderScale below 1.
 function applyRenderSize() {
   const wrap = document.getElementById('canvas-wrap');
   const w = wrap.clientWidth, h = wrap.clientHeight;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(w, h);
-  if (STYLE.pixel) {
-    const lw = Math.max(2, Math.round(w * STYLE.renderScale));
-    const lh = Math.max(2, Math.round(h * STYLE.renderScale));
+  const useScaledPass = STYLE.pixel && STYLE.renderScale < 1;
+  if (useScaledPass) {
+    const pixelRatio = renderer.getPixelRatio();
+    const lw = Math.max(2, Math.round(w * pixelRatio * STYLE.renderScale));
+    const lh = Math.max(2, Math.round(h * pixelRatio * STYLE.renderScale));
     if (!pixelPass) {
       const target = new THREE.WebGLRenderTarget(lw, lh, {
         minFilter: THREE.NearestFilter,
@@ -451,7 +457,7 @@ function animate() {
   requestAnimationFrame(animate);
   updateTweens();
   orbit.update();
-  if (STYLE.pixel && pixelPass) {
+  if (STYLE.pixel && STYLE.renderScale < 1 && pixelPass) {
     renderer.setRenderTarget(pixelPass.target);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);
@@ -551,38 +557,65 @@ window.loadPacking = function(data) {
   const unplaced = data.unplaced_items || [];
   lastGrids = grids;
 
-  // Lay out grids along X with gap
-  const gridOrigins = [];
-  let cursor = 0; let totalW = 0;
-  for (const g of grids) {
-    gridOrigins.push(cursor);
-    cursor += gridDims(g)[0] + GRID_GAP;
-    totalW = cursor;
+  // Grid origins: grids with a saved layout (authored in the dev grid-layout
+  // editor) sit at their ship-space position — JSON [x, y, z] maps to world
+  // (x, z, y) with z vertical. Grids without one fall back to the legacy
+  // auto-row along X, placed after any laid-out grids.
+  const gridOrigins = [];   // per grid: {x, y, z} world origin corner
+  const layouts = grids.map(g => gridLayout(g));
+  const anyLayout = layouts.some(l => l);
+  let autoCursor = 0;
+  grids.forEach((g, i) => {
+    if (layouts[i]) {
+      const [lx, ly, lz] = layouts[i].position;
+      gridOrigins[i] = { x: lx, y: lz, z: ly };
+      autoCursor = Math.max(autoCursor, lx + gridDims(g)[0] + GRID_GAP);
+    }
+  });
+  grids.forEach((g, i) => {
+    if (!gridOrigins[i]) {
+      gridOrigins[i] = { x: autoCursor, y: 0, z: 0 };
+      autoCursor += gridDims(g)[0] + GRID_GAP;
+    }
+  });
+  if (!anyLayout) {
+    // Legacy look: center the auto-row on X.
+    const shift = -(autoCursor - GRID_GAP) / 2;
+    for (const o of gridOrigins) o.x += shift;
   }
-  const shift = -(totalW - GRID_GAP) / 2;
+
   const gridCenterByIdx = {};
   const gridNameToIdx = {};
   lastGridOrigins = {};
   grids.forEach((g, i) => {
-    gridOrigins[i] += shift;
     lastGridOrigins[i] = gridOrigins[i];
     gridNameToIdx[gridName(g)] = i;
   });
 
-  let maxH = 0;
-  let maxL = 0;
+  // Bounding box over all grids, for the floor, staging zone and camera.
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  let maxTop = 0;
   grids.forEach((g, i) => {
     const [w, l, h] = gridDims(g);
-    maxH = Math.max(maxH, h);
-    maxL = Math.max(maxL, l);
-    const ox = gridOrigins[i];
-    gridCenterByIdx[i] = new THREE.Vector3(ox + w/2, h/2, l/2);
+    const o = gridOrigins[i];
+    minX = Math.min(minX, o.x); maxX = Math.max(maxX, o.x + w);
+    minZ = Math.min(minZ, o.z); maxZ = Math.max(maxZ, o.z + l);
+    maxTop = Math.max(maxTop, o.y + h);
+  });
+  if (!grids.length) { minX = maxX = minZ = maxZ = 0; }
+  const spanX = maxX - minX, spanZ = maxZ - minZ;
+  const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+
+  grids.forEach((g, i) => {
+    const [w, l, h] = gridDims(g);
+    const o = gridOrigins[i];
+    gridCenterByIdx[i] = new THREE.Vector3(o.x + w/2, o.y + h/2, o.z + l/2);
 
     // Wireframe box
     const geo = new THREE.BoxGeometry(w, h, l);
     const edges = new THREE.EdgesGeometry(geo);
     const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: PAL.wire }));
-    line.position.set(ox + w/2, h/2, l/2);
+    line.position.set(o.x + w/2, o.y + h/2, o.z + l/2);
     line.userData.role = 'wire';
     scene.add(line); gridMeshes.push(line);
 
@@ -592,7 +625,7 @@ window.loadPacking = function(data) {
                                                    transparent: true, opacity: 0.85 });
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.rotation.x = -Math.PI / 2;
-    floor.position.set(ox + w/2, 0.001, l/2);
+    floor.position.set(o.x + w/2, o.y + 0.001, o.z + l/2);
     floor.userData.role = 'floor';
     scene.add(floor); gridMeshes.push(floor);
 
@@ -600,13 +633,13 @@ window.loadPacking = function(data) {
     const overlay = new THREE.GridHelper(Math.max(w, l), Math.max(w, l));
     overlay.material.vertexColors = false;
     overlay.material.color.set(PAL.helper);
-    overlay.position.set(ox + w/2, 0.005, l/2);
+    overlay.position.set(o.x + w/2, o.y + 0.005, o.z + l/2);
     overlay.visible = document.getElementById('gridToggle').checked;
     scene.add(overlay); gridHelpers.push(overlay);
 
     // Label
     const sprite = makeTextSprite(gridName(g), 'label');
-    sprite.position.set(ox + w/2, h + 1.0, l/2);
+    sprite.position.set(o.x + w/2, o.y + h + 1.0, o.z + l/2);
     scene.add(sprite); gridMeshes.push(sprite);
 
     for (const blocker of gridBlocked(g)) {
@@ -615,29 +648,29 @@ window.loadPacking = function(data) {
       addBlockerMesh({
         dims: [bw, bl, bh],
         supports: blockerSupports(blocker),
-        position: new THREE.Vector3(ox + bx + bw/2, bz + bh/2, by + bl/2),
+        position: new THREE.Vector3(o.x + bx + bw/2, o.y + bz + bh/2, o.z + by + bl/2),
       });
     }
   });
   lastGridCenters = gridCenterByIdx;
 
   // Workspace floor — extends well beyond grids so user has room to drag
-  const wsW = Math.max(totalW, 16) + 30;
-  const wsL = Math.max(maxL, 12) + 12;
+  const wsW = Math.max(spanX, 16) + 30;
+  const wsL = Math.max(spanZ, 12) + 12;
   const wsGeo = new THREE.PlaneGeometry(wsW, wsL);
   const wsMat = new THREE.MeshBasicMaterial({ color: PAL.ws, side: THREE.DoubleSide,
                                               transparent: true, opacity: 0.5 });
   workspaceFloor = new THREE.Mesh(wsGeo, wsMat);
   workspaceFloor.rotation.x = -Math.PI / 2;
-  workspaceFloor.position.set(0, -0.01, maxL / 2);
+  workspaceFloor.position.set(cx, -0.01, cz);
   scene.add(workspaceFloor);
 
   // Unplaced staging zone — fixed footprint, items stack into a tight pile.
   // Footprint sized to fit the largest SCU container (32 SCU = 2x8x2). 4×8 base.
   const STAGE_W = 4;
   const STAGE_L = 8;
-  const stagingX = (totalW > 0 ? totalW + shift + STAGING_GAP : 4);
-  const stagingZ = Math.max(0, maxL / 2 - STAGE_L / 2);
+  const stagingX = (grids.length ? maxX + STAGING_GAP : 4);
+  const stagingZ = cz - STAGE_L / 2;
   const stagingGeo = new THREE.PlaneGeometry(STAGE_W, STAGE_L);
   const stagingMat = new THREE.MeshBasicMaterial({ color: PAL.staging, side: THREE.DoubleSide,
                                                    transparent: true, opacity: 0.45 });
@@ -660,8 +693,8 @@ window.loadPacking = function(data) {
     const [px, py, pz] = p.position;
     const [dw, dl, dh] = p.dimensions;
     const gidx = (p.grid_idx !== undefined) ? p.grid_idx : (gridNameToIdx[p.grid_name] ?? 0);
-    const ox = lastGridOrigins[gidx] || 0;
-    const basePos = new THREE.Vector3(ox + px + dw/2, pz + dh/2, py + dl/2);
+    const o = lastGridOrigins[gidx] || { x: 0, y: 0, z: 0 };
+    const basePos = new THREE.Vector3(o.x + px + dw/2, o.y + pz + dh/2, o.z + py + dl/2);
     addItemMesh({
       dims: [dw, dl, dh],
       position: basePos, gridCenter: gridCenterByIdx[gidx].clone(),
@@ -746,9 +779,9 @@ window.loadPacking = function(data) {
   renderLegend();
 
   // Frame camera around workspace
-  const span = Math.max(totalW + STAGE_W + STAGING_GAP, maxH * 4, 14);
-  defaultCam.pos.set(span * 0.4, span * 0.7, span * 0.9);
-  defaultCam.target.set(stagingX > 0 ? totalW / 2 : 0, maxH / 2, maxL / 2);
+  const span = Math.max(spanX + STAGE_W + STAGING_GAP, spanZ, maxTop * 4, 14);
+  defaultCam.pos.set(cx + span * 0.4, span * 0.7, cz + span * 0.9);
+  defaultCam.target.set(cx, maxTop / 2, cz);
   resetView();
   applyExplode();
 };
@@ -1247,6 +1280,16 @@ function supportTopAt(r, x, z) {
       if (otherTop > top) top = otherTop;
     }
   }
+  // Elevated grids (from a saved ship layout) act as shelves: their floor is
+  // a support surface anywhere the footprint overlaps them.
+  for (const [i, o] of Object.entries(lastGridOrigins)) {
+    if (!o || o.y <= 0.001 || o.y <= top) continue;
+    const dims = lastGrids[i] && gridDims(lastGrids[i]);
+    if (!dims) continue;
+    const xOv = Math.min(ix2, o.x + dims[0]) - Math.max(ix1, o.x);
+    const zOv = Math.min(iz2, o.z + dims[1]) - Math.max(iz1, o.z);
+    if (xOv > 0.001 && zOv > 0.001) top = o.y;
+  }
   return top;
 }
 
@@ -1456,11 +1499,11 @@ function selectItem(r) {
 
 // Which grid (index) covers the given XZ point, or -1 for open workspace.
 function gridIndexAt(x, z) {
-  for (const [i, ox] of Object.entries(lastGridOrigins)) {
+  for (const [i, o] of Object.entries(lastGridOrigins)) {
     const dims = lastGrids[i] && gridDims(lastGrids[i]);
     if (!dims) continue;
     const [gw, gl] = dims;
-    if (x >= ox && x <= ox + gw && z >= 0 && z <= gl) return parseInt(i);
+    if (x >= o.x && x <= o.x + gw && z >= o.z && z <= o.z + gl) return parseInt(i);
   }
   return -1;
 }
@@ -1477,14 +1520,14 @@ function computeSnappedPosition(r, pos) {
     x = Math.round(pos.x - dw/2) + dw/2;
     z = Math.round(pos.z - dl/2) + dl/2;
   } else {
-    const ox = lastGridOrigins[gidx];
+    const o = lastGridOrigins[gidx];
     const [gw, gl] = gridDims(lastGrids[gidx]);
-    let lx = Math.round(pos.x - ox - dw/2);
-    let ly = Math.round(pos.z - dl/2);
+    let lx = Math.round(pos.x - o.x - dw/2);
+    let ly = Math.round(pos.z - o.z - dl/2);
     lx = Math.max(0, Math.min(gw - dw, lx));
     ly = Math.max(0, Math.min(gl - dl, ly));
-    x = ox + lx + dw/2;
-    z = ly + dl/2;
+    x = o.x + lx + dw/2;
+    z = o.z + ly + dl/2;
   }
 
   const supportTop = supportTopAt(r, x, z);
@@ -1497,7 +1540,8 @@ function computeSnappedPosition(r, pos) {
     bottom = supportTop;
   }
   if (gidx !== -1) {
-    bottom = Math.min(bottom, gridDims(lastGrids[gidx])[2] - dh);
+    const o = lastGridOrigins[gidx];
+    bottom = Math.min(bottom, o.y + gridDims(lastGrids[gidx])[2] - dh);
   }
   return new THREE.Vector3(x, bottom + dh/2, z);
 }
@@ -1534,17 +1578,17 @@ function updateValidity(r) {
   const y1 = p.y - dh/2, y2 = p.y + dh/2;
   let inside = false;
   let insideName = null;
-  let insideOx = 0;
-  for (const [i, ox] of Object.entries(lastGridOrigins)) {
+  let insideO = { x: 0, y: 0, z: 0 };
+  for (const [i, o] of Object.entries(lastGridOrigins)) {
     const dims = lastGrids[i] && gridDims(lastGrids[i]);
     if (!dims) continue;
     const [gw, gl, gh] = dims;
-    if (x1 >= ox - 0.001 && x2 <= ox + gw + 0.001 &&
-        z1 >= -0.001 && z2 <= gl + 0.001 &&
-        y1 >= -0.001 && y2 <= gh + 0.001) {
+    if (x1 >= o.x - 0.001 && x2 <= o.x + gw + 0.001 &&
+        z1 >= o.z - 0.001 && z2 <= o.z + gl + 0.001 &&
+        y1 >= o.y - 0.001 && y2 <= o.y + gh + 0.001) {
       inside = true;
       insideName = gridName(lastGrids[i]);
-      insideOx = ox;
+      insideO = o;
       break;
     }
   }
@@ -1555,9 +1599,9 @@ function updateValidity(r) {
   }
   r.info.grid = insideName || (r.unplaced ? 'Unplaced' : 'Outside');
   r.info.position = [
-    Math.round(x1 - (inside ? insideOx : 0)),
-    Math.round(z1),
-    Math.round(y1),
+    Math.round(x1 - (inside ? insideO.x : 0)),
+    Math.round(z1 - (inside ? insideO.z : 0)),
+    Math.round(y1 - (inside ? insideO.y : 0)),
   ];
   // If currently selected, refresh info panel
   if (selectedRec === r) showInfo(r);

@@ -49,11 +49,26 @@ def normalize_blockers(blocked):
     return normalized
 
 
+def normalize_layout(layout):
+    """Optional viewer-only placement of a grid within its ship: where the
+    grid's origin corner sits in ship space, same [x, y, z] axis convention
+    as blocker positions (z vertical). Authored by tools/grid_layout_editor;
+    packing itself never reads it — it is carried through so the 3D viewer
+    can draw grids where they physically are in the ship."""
+    if layout is None:
+        return None
+    if not isinstance(layout, Mapping):
+        raise ValueError("layout must be a mapping with a 'position' field")
+    return {"position": _coerce_triplet(layout.get("position"), "layout.position")}
+
+
 def normalize_grid(grid, index=0):
+    layout = None
     if isinstance(grid, Mapping):
         dimensions = _coerce_triplet(grid.get("dimensions"), f"grids[{index}].dimensions")
         name = str(grid.get("name", f"Grid {index + 1}"))
         blocked = normalize_blockers(grid.get("blocked", []))
+        layout = normalize_layout(grid.get("layout"))
     elif _looks_like_dimensions(grid):
         dimensions = _coerce_triplet(grid, f"grids[{index}].dimensions")
         name = f"Grid {index + 1}"
@@ -65,11 +80,14 @@ def normalize_grid(grid, index=0):
     else:
         raise ValueError(f"grids[{index}] must be a grid mapping, dimensions triplet, or (dimensions, name) sequence")
 
-    return {
+    normalized = {
         "dimensions": dimensions,
         "name": name,
         "blocked": blocked,
     }
+    if layout is not None:
+        normalized["layout"] = layout
+    return normalized
 
 
 def normalize_grids(grids_list):
@@ -122,6 +140,10 @@ def serialize_grid(grid):
             }
             for blocker in normalized["blocked"]
         ]
+    if normalized.get("layout"):
+        result["layout"] = {
+            "position": [_json_number(v) for v in normalized["layout"]["position"]],
+        }
     return result
 
 

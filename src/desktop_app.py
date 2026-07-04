@@ -28,7 +28,7 @@ def _resource_root() -> Path:
 
 APP_ORG = "StarCitizen"
 APP_NAME = "CargoOptimizer"
-APP_VERSION = "0.1.3"
+APP_VERSION = "0.1.4"
 
 
 def _user_data_dir() -> Path:
@@ -699,7 +699,7 @@ class MainWindow(QMainWindow):
                 combo.setCurrentIndex(idx)
                 combo.blockSignals(False)
 
-    def _on_theme_picked(self, *_args):
+    def _on_theme_picked(self):
         self._set_theme(self.style_combo.currentData(), self.palette_combo.currentData())
 
     def _push_theme_to_viewer(self):
