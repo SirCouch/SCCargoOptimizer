@@ -59,6 +59,11 @@ MAX_PRIORITY = 5
 # frontend/viewer.html — keep the two in sync. The viewer broadcasts theme
 # changes through its page title ("sc-theme|<style>|<palette>") and the main
 # window restyles the whole app to match.
+THEME_STYLE_LABELS = {"modern": "Modern", "retro": "8-Bit"}
+THEME_PALETTE_LABELS = {
+    "default": "Default", "drake": "Drake", "origin": "Origin", "rsi": "RSI",
+    "aegis": "Aegis", "misc": "MISC", "crusader": "Crusader", "argo": "Argo",
+}
 THEME_PALETTES = {
     "default": {"bg": "#0d1117", "border": "#30363d", "fg": "#e6edf3", "muted": "#8b949e",
                 "accent": "#58a6ff", "warn": "#d29922", "bad": "#f85149", "good": "#3fb950",
@@ -507,6 +512,26 @@ class MainWindow(QMainWindow):
         preset_layout.addLayout(preset_btns)
         top_row.addWidget(preset_box, 2)
 
+        # Theme — applies to the whole app (Qt chrome + 3D viewer, kept in sync)
+        theme_box = QGroupBox("Theme")
+        theme_layout = QVBoxLayout(theme_box)
+        theme_layout.setContentsMargins(8, 4, 8, 8)
+        theme_layout.setSpacing(4)
+        self.style_combo = QComboBox()
+        for key in THEME_STYLES:
+            self.style_combo.addItem(THEME_STYLE_LABELS[key], key)
+        self.style_combo.setToolTip("Rendering style — Modern or chunky 8-Bit")
+        self.palette_combo = QComboBox()
+        for key in THEME_PALETTES:
+            self.palette_combo.addItem(THEME_PALETTE_LABELS.get(key, key), key)
+        self.palette_combo.setToolTip("Color palette inspired by ship manufacturers")
+        self._sync_theme_combos()
+        self.style_combo.currentIndexChanged.connect(self._on_theme_picked)
+        self.palette_combo.currentIndexChanged.connect(self._on_theme_picked)
+        theme_layout.addWidget(self.style_combo)
+        theme_layout.addWidget(self.palette_combo)
+        top_row.addWidget(theme_box, 1)
+
         root.addLayout(top_row)
 
         # Cargo + viewer split
@@ -645,27 +670,54 @@ class MainWindow(QMainWindow):
         if hasattr(self, "ship_combo"):
             self._on_ship_changed(self.ship_combo.currentText())
 
-    def _on_viewer_loaded(self, ok):
-        if not ok:
+    def _set_theme(self, style, palette, from_viewer=False):
+        """Single entry point for theme changes, wherever they originate:
+        the app's Theme box, the viewer's Style/Palette pickers (via the
+        page-title channel), or the saved setting at startup."""
+        if style not in THEME_STYLES or palette not in THEME_PALETTES:
+            return
+        changed = (style, palette) != (self.theme_style, self.theme_palette)
+        self.theme_style = style
+        self.theme_palette = palette
+        self._sync_theme_combos()
+        if not changed:
+            return
+        self.settings.setValue("theme_style", style)
+        self.settings.setValue("theme_palette", palette)
+        self._apply_app_theme()
+        if not from_viewer:
+            self._push_theme_to_viewer()
+
+    def _sync_theme_combos(self):
+        if not hasattr(self, "style_combo"):
+            return
+        for combo, key in ((self.style_combo, self.theme_style),
+                           (self.palette_combo, self.theme_palette)):
+            idx = combo.findData(key)
+            if idx >= 0 and idx != combo.currentIndex():
+                combo.blockSignals(True)
+                combo.setCurrentIndex(idx)
+                combo.blockSignals(False)
+
+    def _on_theme_picked(self, *_args):
+        self._set_theme(self.style_combo.currentData(), self.palette_combo.currentData())
+
+    def _push_theme_to_viewer(self):
+        if not hasattr(self, "viewer"):
             return
         js = (f"window.setTheme && window.setTheme("
               f"{json.dumps(self.theme_style)}, {json.dumps(self.theme_palette)});")
         self.viewer.page().runJavaScript(js)
 
+    def _on_viewer_loaded(self, ok):
+        if ok:
+            self._push_theme_to_viewer()
+
     def _on_viewer_theme_changed(self, title):
         parts = str(title).split("|")
         if len(parts) != 3 or parts[0] != "sc-theme":
             return
-        style, palette = parts[1], parts[2]
-        if style not in THEME_STYLES or palette not in THEME_PALETTES:
-            return
-        if (style, palette) == (self.theme_style, self.theme_palette):
-            return
-        self.theme_style = style
-        self.theme_palette = palette
-        self.settings.setValue("theme_style", style)
-        self.settings.setValue("theme_palette", palette)
-        self._apply_app_theme()
+        self._set_theme(parts[1], parts[2], from_viewer=True)
 
     def _selected_ship(self):
         name = self.ship_combo.currentText()

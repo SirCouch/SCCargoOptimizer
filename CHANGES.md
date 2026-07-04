@@ -3,11 +3,12 @@
 ## Unreleased
 
 ### New
-- **App-wide theming.** The Style/Palette picked in the 3D viewer now restyles the whole
-  desktop app, not just the cargo packing view. The viewer broadcasts theme changes via
-  its page title; the Qt window regenerates its stylesheet from the matching palette
-  (all 8 manufacturer palettes, plus a square-cornered monospace variant for 8-Bit mode)
-  and persists the choice in `QSettings`, pushing it back into the viewer on startup.
+- **App-wide theming.** Theme is now an app-level setting: a Theme box in the main
+  window (Style + Palette) restyles the entire desktop app and the 3D viewer together,
+  and the pickers inside the viewer's bottom bar drive the same sync in the other
+  direction (broadcast via the viewer page title). The Qt stylesheet is regenerated from
+  the matching palette (all 8 manufacturer palettes, plus a square-cornered monospace
+  variant for 8-Bit mode) and the choice persists in `QSettings` across launches.
 - **Structural lattice meshes for cutouts.** Blocked cuboids render as strut-truss
   wireframes — cage bars at every 1-SCU grid line plus per-cell diagonal bracing — sized
   to the blocker dimensions from `ships_cargo_grids.json`, instead of plain translucent
