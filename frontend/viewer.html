@@ -85,7 +85,6 @@
   body.retro .sw { border-radius: 0; }
   body.retro #info .badge { border-radius: 0; }
   body.retro #hud, body.retro #legend, body.retro #help { text-transform: uppercase; font-size: 11px; }
-  body.retro #canvas-wrap canvas { image-rendering: pixelated; }
   body.retro #scanlines { display: block; }
 </style>
 </head>
@@ -266,6 +265,7 @@ const STAGING_GAP = 4.0;     // gap between grids and the unplaced staging zone
 
 let scene, camera, renderer, orbit;
 let ambLight, keyLight, fillLight;
+let pixelPass = null;  // { target, scene, camera, material } low-res pass for 8-bit style
 let dragState = null;  // { record, startPos, plane, offset, mode, lastValid, hasMoved, colliding }
 let itemMeshes = []; // {mesh, edge, mats, base, gridCenter, info, unplaced, originalPos, dims, geomDims}
 let blockerMeshes = []; // fixed cutout/obstacle records used for collision/support only
@@ -359,20 +359,37 @@ function init() {
   animate();
 }
 
-// Buffer size follows the style: full-res for modern, low-res upscaled with
-// CSS image-rendering:pixelated for the 8-bit look.
+// The canvas is always full resolution. For the 8-bit style the scene is first
+// rendered into a low-res target, then blitted to the canvas with nearest-
+// neighbor sampling — crisp square pixels, no reliance on CSS upscaling
+// (which some compositors filter bilinearly, turning the retro look blurry).
 function applyRenderSize() {
   const wrap = document.getElementById('canvas-wrap');
   const w = wrap.clientWidth, h = wrap.clientHeight;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(w, h);
   if (STYLE.pixel) {
-    renderer.setPixelRatio(1);
-    renderer.setSize(Math.max(2, Math.floor(w * STYLE.renderScale)),
-                     Math.max(2, Math.floor(h * STYLE.renderScale)), false);
-    renderer.domElement.style.width = '100%';
-    renderer.domElement.style.height = '100%';
-  } else {
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(w, h);
+    const lw = Math.max(2, Math.round(w * STYLE.renderScale));
+    const lh = Math.max(2, Math.round(h * STYLE.renderScale));
+    if (!pixelPass) {
+      const target = new THREE.WebGLRenderTarget(lw, lh, {
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
+        depthBuffer: true,
+      });
+      target.texture.generateMipmaps = false;
+      const blitScene = new THREE.Scene();
+      const blitCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      const material = new THREE.MeshBasicMaterial({ map: target.texture });
+      blitScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
+      pixelPass = { target, scene: blitScene, camera: blitCam, material };
+    } else {
+      pixelPass.target.setSize(lw, lh);
+    }
+  } else if (pixelPass) {
+    pixelPass.target.dispose();
+    pixelPass.material.dispose();
+    pixelPass = null;
   }
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -434,7 +451,14 @@ function animate() {
   requestAnimationFrame(animate);
   updateTweens();
   orbit.update();
-  renderer.render(scene, camera);
+  if (STYLE.pixel && pixelPass) {
+    renderer.setRenderTarget(pixelPass.target);
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    renderer.render(pixelPass.scene, pixelPass.camera);
+  } else {
+    renderer.render(scene, camera);
+  }
 }
 
 // ──── Tiny tween engine (ease-out cubic) for drops, reverts and camera moves ────
@@ -776,32 +800,105 @@ function addItemMesh({ dims, position, gridCenter, info, unplaced }) {
 
 // ──── Item materials per style: plain shaded box, or per-SCU-unit "voxel" faces ────
 
+// Cutout blockers render as a structural strut lattice — a cage with bars at
+// every 1-SCU grid line plus per-cell diagonal bracing — sized exactly to the
+// blocker dimensions from ships_cargo_grids.json, so they read as ship
+// structure rather than translucent boxes.
+function buildBlockerLatticeGeometry(dims) {
+  const [dw, dl, dh] = dims;             // grid units: w (x), l (z), h (y)
+  const hx = dw / 2, hy = dh / 2, hz = dl / 2;
+  const pts = [];
+  const seg = (x1, y1, z1, x2, y2, z2) => pts.push(x1, y1, z1, x2, y2, z2);
+
+  // Cage bars: 1-unit grid lines on every face (surface only, not interior).
+  for (let j = 0; j <= dh; j++)
+    for (let k = 0; k <= dl; k++)
+      if (j === 0 || j === dh || k === 0 || k === dl)
+        seg(-hx, j - hy, k - hz, hx, j - hy, k - hz);
+  for (let i = 0; i <= dw; i++)
+    for (let k = 0; k <= dl; k++)
+      if (i === 0 || i === dw || k === 0 || k === dl)
+        seg(i - hx, -hy, k - hz, i - hx, hy, k - hz);
+  for (let i = 0; i <= dw; i++)
+    for (let j = 0; j <= dh; j++)
+      if (i === 0 || i === dw || j === 0 || j === dh)
+        seg(i - hx, j - hy, -hz, i - hx, j - hy, hz);
+
+  // Diagonal braces: one strut per unit cell per face, alternating direction
+  // in a checkerboard so adjacent cells form a truss pattern.
+  const brace = (cellsU, cellsV, toXYZ) => {
+    for (let u = 0; u < cellsU; u++)
+      for (let v = 0; v < cellsV; v++) {
+        const flip = (u + v) % 2 === 1;
+        const a = toXYZ(u + (flip ? 1 : 0), v);
+        const b = toXYZ(u + (flip ? 0 : 1), v + 1);
+        seg(a[0], a[1], a[2], b[0], b[1], b[2]);
+      }
+  };
+  brace(dh, dl, (j, k) => [ hx, j - hy, k - hz]);   // +x face
+  brace(dh, dl, (j, k) => [-hx, j - hy, k - hz]);   // -x face
+  brace(dw, dl, (i, k) => [i - hx,  hy, k - hz]);   // top
+  brace(dw, dl, (i, k) => [i - hx, -hy, k - hz]);   // bottom
+  brace(dw, dh, (i, j) => [i - hx, j - hy,  hz]);   // +z face
+  brace(dw, dh, (i, j) => [i - hx, j - hy, -hz]);   // -z face
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  return geom;
+}
+
+function blockerColors(supports) {
+  return {
+    lattice: supports ? PAL.wire : PAL.css.bad,
+    fill: supports ? PAL.wire : PAL.css.bad,
+    plate: PAL.wire,
+  };
+}
+
 function addBlockerMesh({ dims, position, supports }) {
   const [dw, dl, dh] = dims;
-  const geom = new THREE.BoxGeometry(dw, dh, dl);
-  const mat = new THREE.MeshStandardMaterial({
-    color: PAL.wire,
-    transparent: true,
-    opacity: supports ? 0.38 : 0.26,
-    roughness: 0.8,
-    metalness: 0.0,
-  });
-  const mesh = new THREE.Mesh(geom, mat);
-  mesh.position.copy(position);
-  scene.add(mesh);
+  const c = blockerColors(supports);
+  const group = new THREE.Group();
 
-  const edge = new THREE.LineSegments(
-    new THREE.EdgesGeometry(geom),
-    new THREE.LineBasicMaterial({
-      color: supports ? PAL.wire : PAL.css.bad,
-      opacity: 0.9,
-      transparent: true,
-    }),
+  const lattice = new THREE.LineSegments(
+    buildBlockerLatticeGeometry(dims),
+    new THREE.LineBasicMaterial({ color: c.lattice, transparent: true, opacity: 0.75 }),
   );
-  edge.position.copy(position);
-  scene.add(edge);
+  group.add(lattice);
 
-  blockerMeshes.push({ mesh, edge, dims, blocker: true, supports });
+  // Very faint volume fill for depth cues — the lattice is the visual.
+  const fill = new THREE.Mesh(
+    new THREE.BoxGeometry(dw, dh, dl),
+    new THREE.MeshBasicMaterial({ color: c.fill, transparent: true, opacity: 0.07,
+                                  depthWrite: false }),
+  );
+  group.add(fill);
+
+  // Blockers that support cargo get a visible top plate: the shelf you can
+  // stack boxes on.
+  let plate = null;
+  if (supports) {
+    plate = new THREE.Mesh(
+      new THREE.PlaneGeometry(dw, dl),
+      new THREE.MeshBasicMaterial({ color: c.plate, transparent: true, opacity: 0.3,
+                                    side: THREE.DoubleSide, depthWrite: false }),
+    );
+    plate.rotation.x = -Math.PI / 2;
+    plate.position.y = dh / 2 + 0.002;
+    group.add(plate);
+  }
+
+  group.position.copy(position);
+  scene.add(group);
+  blockerMeshes.push({ mesh: group, edge: null, dims, blocker: true, supports,
+                       lattice, fill, plate });
+}
+
+function restyleBlocker(b) {
+  const c = blockerColors(b.supports);
+  b.lattice.material.color.set(c.lattice);
+  b.fill.material.color.set(c.fill);
+  if (b.plate) b.plate.material.color.set(c.plate);
 }
 
 const unitTexCache = new Map();
@@ -920,6 +1017,7 @@ function applyTheme() {
     updateItemVisual(r);
     updateValidity(r);
   }
+  for (const b of blockerMeshes) restyleBlocker(b);
   if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; ghostKey = ''; }
   renderLegend();
 
@@ -927,6 +1025,10 @@ function applyTheme() {
     localStorage.setItem('cargoViewerStyle', styleKey);
     localStorage.setItem('cargoViewerPalette', paletteKey);
   } catch (e) { /* storage unavailable */ }
+
+  // Broadcast the theme through the page title so the host desktop app can
+  // restyle its own chrome to match (QWebEngineView listens to titleChanged).
+  document.title = 'sc-theme|' + styleKey + '|' + paletteKey;
 }
 
 window.setViewerStyle = function(key) {

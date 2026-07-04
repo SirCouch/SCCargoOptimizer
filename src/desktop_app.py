@@ -55,113 +55,177 @@ VIEWER_HTML = RESOURCE_ROOT / "frontend" / "viewer.html"
 PRESETS_FILE = _user_data_dir() / "presets.json"
 MAX_PRIORITY = 5
 
-# GitHub-dark inspired palette
-DARK_QSS = """
-QMainWindow, QWidget#central { background-color: #0d1117; }
-QWidget { color: #e6edf3; font-family: "Segoe UI", system-ui, sans-serif; font-size: 12px; }
-QLabel { color: #e6edf3; }
-QLabel#hint { color: #8b949e; font-size: 11px; }
-QLabel#capacity_ok { color: #3fb950; font-weight: 600; }
-QLabel#capacity_warn { color: #d29922; font-weight: 600; }
-QLabel#capacity_full { color: #f85149; font-weight: 600; }
-QLabel#status_dot_loading { color: #d29922; font-size: 14px; }
-QLabel#status_dot_ready { color: #3fb950; font-size: 14px; }
-QLabel#status_dot_error { color: #f85149; font-size: 14px; }
-QGroupBox {
-    border: 1px solid #30363d; border-radius: 6px;
+# App-wide theme palettes. Keys and colors mirror the PALETTES `css` blocks in
+# frontend/viewer.html — keep the two in sync. The viewer broadcasts theme
+# changes through its page title ("sc-theme|<style>|<palette>") and the main
+# window restyles the whole app to match.
+THEME_PALETTES = {
+    "default": {"bg": "#0d1117", "border": "#30363d", "fg": "#e6edf3", "muted": "#8b949e",
+                "accent": "#58a6ff", "warn": "#d29922", "bad": "#f85149", "good": "#3fb950",
+                "btn": "#21262d", "btn_hover": "#30363d"},
+    "drake":   {"bg": "#120c07", "border": "#4a3524", "fg": "#f2e7da", "muted": "#a68d75",
+                "accent": "#ff6a2b", "warn": "#e0a33c", "bad": "#ff4633", "good": "#4fa866",
+                "btn": "#251a10", "btn_hover": "#3a2818"},
+    "origin":  {"bg": "#eef1f4", "border": "#c3ccd6", "fg": "#1c2733", "muted": "#5f6b78",
+                "accent": "#0289a8", "warn": "#9a6700", "bad": "#c93a31", "good": "#1a7f37",
+                "btn": "#ffffff", "btn_hover": "#dfe6ec"},
+    "rsi":     {"bg": "#06121f", "border": "#1d4062", "fg": "#dcebfa", "muted": "#7fa3c4",
+                "accent": "#3fb6ff", "warn": "#d9a03c", "bad": "#ff5d5d", "good": "#35d07f",
+                "btn": "#0d2438", "btn_hover": "#16334e"},
+    "aegis":   {"bg": "#0b100d", "border": "#2c3b32", "fg": "#dde8df", "muted": "#8ba392",
+                "accent": "#4fd1a5", "warn": "#d0a136", "bad": "#e5484d", "good": "#62c462",
+                "btn": "#16211b", "btn_hover": "#24352b"},
+    "misc":    {"bg": "#0c1416", "border": "#29444a", "fg": "#e2f1f0", "muted": "#86a8a6",
+                "accent": "#35d0ba", "warn": "#d99e35", "bad": "#ef476f", "good": "#6ede8a",
+                "btn": "#12262a", "btn_hover": "#1d3a40"},
+    "crusader": {"bg": "#081226", "border": "#24406e", "fg": "#e8eefc", "muted": "#8fa3cc",
+                 "accent": "#ffa62b", "warn": "#dcae4a", "bad": "#ff4f58", "good": "#43d17c",
+                 "btn": "#101f3e", "btn_hover": "#1b2f57"},
+    "argo":    {"bg": "#0f0f0d", "border": "#4a452c", "fg": "#f0eee3", "muted": "#a3a08a",
+                "accent": "#ffd60a", "warn": "#d9a03c", "bad": "#ff4438", "good": "#7ac74f",
+                "btn": "#211f16", "btn_hover": "#35321f"},
+}
+THEME_STYLES = ("modern", "retro")
+
+
+def _mix(hex_a, hex_b, t):
+    """Blend two #rrggbb colors; t=0 -> a, t=1 -> b."""
+    a = [int(hex_a[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(hex_b[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(a, b))
+
+
+def _text_on(hex_color):
+    """Black or white, whichever reads better on the given color."""
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+    return "#0d1117" if (0.299 * r + 0.587 * g + 0.114 * b) > 150 else "#ffffff"
+
+
+def build_qss(style_key, palette_key):
+    p = THEME_PALETTES.get(palette_key, THEME_PALETTES["default"])
+    retro = style_key == "retro"
+    c = dict(p)
+    c["surface"] = _mix(p["bg"], p["btn"], 0.5)
+    c["sel"] = p["accent"]
+    c["sel_fg"] = _text_on(p["accent"])
+    c["good_fg"] = _text_on(p["good"])
+    c["good_hi"] = _mix(p["good"], "#ffffff", 0.15)
+    c["good_lo"] = _mix(p["good"], "#000000", 0.2)
+    c["good_dis"] = _mix(p["good"], p["bg"], 0.7)
+    c["bad_dim"] = _mix(p["bad"], p["bg"], 0.85)
+    c["font"] = ('Consolas, "Courier New", monospace' if retro
+                 else '"Segoe UI", system-ui, sans-serif')
+    # Retro: chunky square corners to match the viewer's 8-bit chrome.
+    c["r4"] = c["r5"] = c["r6"] = "0px" if retro else None
+    if not retro:
+        c["r4"], c["r5"], c["r6"] = "4px", "5px", "6px"
+    return """
+QMainWindow, QWidget#central {{ background-color: {bg}; }}
+QWidget {{ color: {fg}; font-family: {font}; font-size: 12px; }}
+QLabel {{ color: {fg}; }}
+QLabel#hint {{ color: {muted}; font-size: 11px; }}
+QLabel#capacity_ok {{ color: {good}; font-weight: 600; }}
+QLabel#capacity_warn {{ color: {warn}; font-weight: 600; }}
+QLabel#capacity_full {{ color: {bad}; font-weight: 600; }}
+QLabel#status_dot_loading {{ color: {warn}; font-size: 14px; }}
+QLabel#status_dot_ready {{ color: {good}; font-size: 14px; }}
+QLabel#status_dot_error {{ color: {bad}; font-size: 14px; }}
+QGroupBox {{
+    border: 1px solid {border}; border-radius: {r6};
     margin-top: 14px; padding: 10px 8px 8px 8px;
-    background-color: #0d1117;
+    background-color: {bg};
     font-weight: 600;
-}
-QGroupBox::title {
-    color: #8b949e; subcontrol-origin: margin;
-    left: 12px; padding: 0 6px; background-color: #0d1117;
-}
-QPushButton {
-    background-color: #21262d; color: #e6edf3;
-    border: 1px solid #30363d; border-radius: 5px;
+}}
+QGroupBox::title {{
+    color: {muted}; subcontrol-origin: margin;
+    left: 12px; padding: 0 6px; background-color: {bg};
+}}
+QPushButton {{
+    background-color: {btn}; color: {fg};
+    border: 1px solid {border}; border-radius: {r5};
     padding: 6px 14px; min-height: 22px;
-}
-QPushButton:hover { background-color: #30363d; border-color: #6e7681; }
-QPushButton:pressed { background-color: #161b22; }
-QPushButton:disabled { color: #6e7681; background-color: #161b22; }
-QPushButton#optimize_btn {
-    background-color: #238636; color: white;
+}}
+QPushButton:hover {{ background-color: {btn_hover}; border-color: {muted}; }}
+QPushButton:pressed {{ background-color: {surface}; }}
+QPushButton:disabled {{ color: {muted}; background-color: {surface}; }}
+QPushButton#optimize_btn {{
+    background-color: {good}; color: {good_fg};
     font-size: 13px; font-weight: 600;
-    border: 1px solid #2ea043; min-height: 32px;
-}
-QPushButton#optimize_btn:hover { background-color: #2ea043; }
-QPushButton#optimize_btn:pressed { background-color: #1f6f2c; }
-QPushButton#optimize_btn:disabled { background-color: #1a3a1f; color: #8b949e; border-color: #30363d; }
-QPushButton#danger { color: #f85149; }
-QPushButton#danger:hover { background-color: #2d1820; border-color: #f85149; }
-QToolButton {
-    background-color: transparent; color: #e6edf3;
-    border: 1px solid #30363d; border-radius: 4px; padding: 3px 6px;
-}
-QToolButton:hover { background-color: #30363d; }
-QComboBox, QSpinBox, QLineEdit {
-    background-color: #161b22; color: #e6edf3;
-    border: 1px solid #30363d; border-radius: 4px;
+    border: 1px solid {good_hi}; min-height: 32px;
+}}
+QPushButton#optimize_btn:hover {{ background-color: {good_hi}; }}
+QPushButton#optimize_btn:pressed {{ background-color: {good_lo}; }}
+QPushButton#optimize_btn:disabled {{ background-color: {good_dis}; color: {muted}; border-color: {border}; }}
+QPushButton#danger {{ color: {bad}; }}
+QPushButton#danger:hover {{ background-color: {bad_dim}; border-color: {bad}; }}
+QToolButton {{
+    background-color: transparent; color: {fg};
+    border: 1px solid {border}; border-radius: {r4}; padding: 3px 6px;
+}}
+QToolButton:hover {{ background-color: {btn_hover}; }}
+QComboBox, QSpinBox, QLineEdit {{
+    background-color: {surface}; color: {fg};
+    border: 1px solid {border}; border-radius: {r4};
     padding: 3px 6px; min-height: 22px;
-    selection-background-color: #1f6feb;
-}
-QComboBox:hover, QSpinBox:hover, QLineEdit:hover { border-color: #6e7681; }
-QComboBox:focus, QSpinBox:focus, QLineEdit:focus { border-color: #58a6ff; }
-QComboBox::drop-down { border: none; width: 18px; }
-QComboBox QAbstractItemView {
-    background-color: #161b22; color: #e6edf3;
-    border: 1px solid #30363d; selection-background-color: #1f6feb;
+    selection-background-color: {sel}; selection-color: {sel_fg};
+}}
+QComboBox:hover, QSpinBox:hover, QLineEdit:hover {{ border-color: {muted}; }}
+QComboBox:focus, QSpinBox:focus, QLineEdit:focus {{ border-color: {accent}; }}
+QComboBox::drop-down {{ border: none; width: 18px; }}
+QComboBox QAbstractItemView {{
+    background-color: {surface}; color: {fg};
+    border: 1px solid {border}; selection-background-color: {sel};
+    selection-color: {sel_fg};
     outline: 0;
-}
-QSpinBox::up-button, QSpinBox::down-button { width: 14px; border: none; background: #21262d; }
-QSpinBox::up-button:hover, QSpinBox::down-button:hover { background: #30363d; }
-QTableWidget {
-    background-color: #0d1117; alternate-background-color: #161b22;
-    gridline-color: #21262d; color: #e6edf3;
-    selection-background-color: #1f6feb; selection-color: white;
-    border: 1px solid #30363d; border-radius: 4px;
-}
-QTableWidget::item { padding: 2px; }
-QHeaderView::section {
-    background-color: #161b22; color: #8b949e;
+}}
+QSpinBox::up-button, QSpinBox::down-button {{ width: 14px; border: none; background: {btn}; }}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {{ background: {btn_hover}; }}
+QTableWidget {{
+    background-color: {bg}; alternate-background-color: {surface};
+    gridline-color: {btn}; color: {fg};
+    selection-background-color: {sel}; selection-color: {sel_fg};
+    border: 1px solid {border}; border-radius: {r4};
+}}
+QTableWidget::item {{ padding: 2px; }}
+QHeaderView::section {{
+    background-color: {surface}; color: {muted};
     padding: 6px 8px; border: none;
-    border-right: 1px solid #30363d; border-bottom: 1px solid #30363d;
+    border-right: 1px solid {border}; border-bottom: 1px solid {border};
     font-weight: 600; text-transform: uppercase; font-size: 10px;
     letter-spacing: 0.5px;
-}
-QHeaderView::section:last { border-right: none; }
-QTabWidget::pane { border: 1px solid #30363d; border-radius: 4px; background: #0d1117; top: -1px; }
-QTabBar::tab {
-    background: #161b22; color: #8b949e;
-    padding: 7px 18px; border: 1px solid #30363d;
-    border-bottom: none; border-top-left-radius: 4px; border-top-right-radius: 4px;
+}}
+QHeaderView::section:last {{ border-right: none; }}
+QTabWidget::pane {{ border: 1px solid {border}; border-radius: {r4}; background: {bg}; top: -1px; }}
+QTabBar::tab {{
+    background: {surface}; color: {muted};
+    padding: 7px 18px; border: 1px solid {border};
+    border-bottom: none; border-top-left-radius: {r4}; border-top-right-radius: {r4};
     margin-right: 2px;
-}
-QTabBar::tab:selected { background: #0d1117; color: #e6edf3; border-color: #30363d; }
-QTabBar::tab:hover:!selected { color: #e6edf3; }
-QTextEdit {
-    background-color: #0d1117; color: #e6edf3;
-    border: 1px solid #30363d; border-radius: 4px;
-    selection-background-color: #1f6feb;
-}
-QStatusBar { background-color: #161b22; color: #8b949e; border-top: 1px solid #30363d; }
-QStatusBar::item { border: none; }
-QSplitter::handle { background-color: #21262d; }
-QSplitter::handle:horizontal { width: 3px; }
-QSplitter::handle:vertical { height: 3px; }
-QSplitter::handle:hover { background-color: #58a6ff; }
-QMessageBox, QInputDialog { background-color: #161b22; }
-QMessageBox QLabel, QInputDialog QLabel { color: #e6edf3; }
-QScrollBar:vertical { background: #0d1117; width: 12px; border: none; }
-QScrollBar::handle:vertical { background: #30363d; border-radius: 5px; min-height: 20px; }
-QScrollBar::handle:vertical:hover { background: #6e7681; }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-QScrollBar:horizontal { background: #0d1117; height: 12px; border: none; }
-QScrollBar::handle:horizontal { background: #30363d; border-radius: 5px; min-width: 20px; }
-QScrollBar::handle:horizontal:hover { background: #6e7681; }
-QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
-"""
+}}
+QTabBar::tab:selected {{ background: {bg}; color: {fg}; border-color: {border}; }}
+QTabBar::tab:hover:!selected {{ color: {fg}; }}
+QTextEdit {{
+    background-color: {bg}; color: {fg};
+    border: 1px solid {border}; border-radius: {r4};
+    selection-background-color: {sel}; selection-color: {sel_fg};
+}}
+QStatusBar {{ background-color: {surface}; color: {muted}; border-top: 1px solid {border}; }}
+QStatusBar::item {{ border: none; }}
+QSplitter::handle {{ background-color: {btn}; }}
+QSplitter::handle:horizontal {{ width: 3px; }}
+QSplitter::handle:vertical {{ height: 3px; }}
+QSplitter::handle:hover {{ background-color: {accent}; }}
+QMessageBox, QInputDialog {{ background-color: {surface}; }}
+QMessageBox QLabel, QInputDialog QLabel {{ color: {fg}; }}
+QScrollBar:vertical {{ background: {bg}; width: 12px; border: none; }}
+QScrollBar::handle:vertical {{ background: {border}; border-radius: {r5}; min-height: 20px; }}
+QScrollBar::handle:vertical:hover {{ background: {muted}; }}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+QScrollBar:horizontal {{ background: {bg}; height: 12px; border: none; }}
+QScrollBar::handle:horizontal {{ background: {border}; border-radius: {r5}; min-width: 20px; }}
+QScrollBar::handle:horizontal:hover {{ background: {muted}; }}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
+""".format(**c)
 
 
 def load_presets():
@@ -374,6 +438,14 @@ class MainWindow(QMainWindow):
         self.ships_data = self._load_ships()
         self.presets = load_presets()
 
+        self.theme_style = str(self.settings.value("theme_style", "modern"))
+        self.theme_palette = str(self.settings.value("theme_palette", "default"))
+        if self.theme_style not in THEME_STYLES:
+            self.theme_style = "modern"
+        if self.theme_palette not in THEME_PALETTES:
+            self.theme_palette = "default"
+        self._apply_app_theme()
+
         self._build_ui()
         self._refresh_preset_combo()
         self._restore_state()
@@ -510,6 +582,10 @@ class MainWindow(QMainWindow):
         # Results: 3D View + Summary tabs
         results_tabs = QTabWidget()
         self.viewer = QWebEngineView()
+        # Theme sync: the viewer announces Style/Palette picks via its page
+        # title; on load we push the app's saved theme into the viewer.
+        self.viewer.titleChanged.connect(self._on_viewer_theme_changed)
+        self.viewer.loadFinished.connect(self._on_viewer_loaded)
         self.viewer.load(QUrl.fromLocalFile(str(VIEWER_HTML)))
         results_tabs.addTab(self.viewer, "3D View")
         self.results_view = QTextEdit()
@@ -558,6 +634,39 @@ class MainWindow(QMainWindow):
         self.settings.setValue("splitter", self.splitter.sizes())
         super().closeEvent(event)
 
+    def _palette(self):
+        return THEME_PALETTES.get(self.theme_palette, THEME_PALETTES["default"])
+
+    def _apply_app_theme(self):
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(build_qss(self.theme_style, self.theme_palette))
+        # Re-render rich-text labels that embed palette colors inline.
+        if hasattr(self, "ship_combo"):
+            self._on_ship_changed(self.ship_combo.currentText())
+
+    def _on_viewer_loaded(self, ok):
+        if not ok:
+            return
+        js = (f"window.setTheme && window.setTheme("
+              f"{json.dumps(self.theme_style)}, {json.dumps(self.theme_palette)});")
+        self.viewer.page().runJavaScript(js)
+
+    def _on_viewer_theme_changed(self, title):
+        parts = str(title).split("|")
+        if len(parts) != 3 or parts[0] != "sc-theme":
+            return
+        style, palette = parts[1], parts[2]
+        if style not in THEME_STYLES or palette not in THEME_PALETTES:
+            return
+        if (style, palette) == (self.theme_style, self.theme_palette):
+            return
+        self.theme_style = style
+        self.theme_palette = palette
+        self.settings.setValue("theme_style", style)
+        self.settings.setValue("theme_palette", palette)
+        self._apply_app_theme()
+
     def _selected_ship(self):
         name = self.ship_combo.currentText()
         for s in self.ships_data.get("ships", []):
@@ -570,17 +679,18 @@ class MainWindow(QMainWindow):
         if not ship:
             self.grid_info.setText("")
             return
+        pal = self._palette()
         grids = ship.get("grids", [])
         total_vol = sum(grid_usable_volume(g) for g in grids)
-        parts = [f"<b style='color:#e6edf3'>{len(grids)}</b> grid(s) · "
-                 f"<b style='color:#58a6ff'>{total_vol:g}</b> usable SCU"]
+        parts = [f"<b style='color:{pal['fg']}'>{len(grids)}</b> grid(s) · "
+                 f"<b style='color:{pal['accent']}'>{total_vol:g}</b> usable SCU"]
         for g in grids:
             d = g["dimensions"]
             bounding_vol = d[0] * d[1] * d[2]
             usable_vol = grid_usable_volume(g)
             blocked_vol = bounding_vol - usable_vol
             blocked_note = f", {blocked_vol:g} blocked" if blocked_vol > 0 else ""
-            parts.append(f"&nbsp;&nbsp;<span style='color:#8b949e'>{g['name']}:</span> "
+            parts.append(f"&nbsp;&nbsp;<span style='color:{pal['muted']}'>{g['name']}:</span> "
                          f"{d[0]}×{d[1]}×{d[2]} ({usable_vol:g} usable{blocked_note})")
         self.grid_info.setText("<br>".join(parts))
         self._update_capacity_label()
@@ -829,8 +939,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Star Citizen Cargo Optimizer")
     app.setStyle("Fusion")
-    app.setStyleSheet(DARK_QSS)
-    win = MainWindow()
+    win = MainWindow()  # applies the saved theme's stylesheet app-wide
     win.show()
     sys.exit(app.exec())
 

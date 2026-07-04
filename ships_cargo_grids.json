@@ -639,7 +639,7 @@
           ]
         },
         {
-          "name": "FWDRight",
+          "name": "AFTLeft",
           "dimensions": [
             2,
             8,
@@ -660,7 +660,7 @@
           ]
         },
         {
-          "name": "1",
+          "name": "2",
           "dimensions": [
             4,
             4,

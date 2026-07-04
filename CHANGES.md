@@ -1,5 +1,29 @@
 # Changes
 
+## Unreleased
+
+### New
+- **App-wide theming.** The Style/Palette picked in the 3D viewer now restyles the whole
+  desktop app, not just the cargo packing view. The viewer broadcasts theme changes via
+  its page title; the Qt window regenerates its stylesheet from the matching palette
+  (all 8 manufacturer palettes, plus a square-cornered monospace variant for 8-Bit mode)
+  and persists the choice in `QSettings`, pushing it back into the viewer on startup.
+- **Structural lattice meshes for cutouts.** Blocked cuboids render as strut-truss
+  wireframes — cage bars at every 1-SCU grid line plus per-cell diagonal bracing — sized
+  to the blocker dimensions from `ships_cargo_grids.json`, instead of plain translucent
+  boxes. Blockers with `supports: true` render in the neutral wire color with a visible
+  top shelf plate; non-supporting cutouts render in the palette's danger color.
+
+### Fixed
+- **8-Bit mode blurriness.** The retro style previously rendered at low resolution and
+  upscaled via CSS, which the compositor filtered bilinearly — everything went soft. The
+  scene is now rendered into a low-res target and blitted to a full-resolution canvas
+  with nearest-neighbor sampling: crisp square pixels, sharp UI text.
+- Blocker meshes now recolor when switching palettes (previously kept the old palette
+  until the next optimize run).
+- `ships_cargo_grids.json`: fixed duplicate grid names (Carrack had two grids named "1",
+  Starlancer MAX had two "FWDRight"; renamed to "2" and "AFTLeft").
+
 ## v0.1.3
 
 ### New
