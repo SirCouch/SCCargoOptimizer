@@ -1,6 +1,8 @@
 import random
 from typing import List, Tuple, Dict, Optional
 
+from packing_core.grid_utils import normalize_grids, total_usable_volume
+
 # SCU Container Definitions
 SCU_DEFINITIONS = {
     "1 SCU": {"dimensions": [1, 1, 1], "volume": 1, "weight": 10},
@@ -32,8 +34,8 @@ GRID_CATEGORIES = {
 }
 
 def get_grid_category(grids_list: List[Tuple[int, int, int]]) -> str:
-    """Determine which category a ship belongs to based on its total volume."""
-    volume = sum(g[0] * g[1] * g[2] for g in grids_list)
+    """Determine which category a ship belongs to based on usable volume."""
+    volume = total_usable_volume(grids_list)
 
     if volume <= 64:  # 4x4x4 = 64
         return "small"
@@ -46,7 +48,8 @@ def get_grid_category(grids_list: List[Tuple[int, int, int]]) -> str:
 def container_fits_any_grid(container_dims: List[int], grids: List[Tuple[int, int, int]]) -> bool:
     """Check if a container can physically fit in at least one grid with Z-axis rotation."""
     sd = sorted(container_dims, reverse=True)
-    for grid in grids:
+    for grid_def in normalize_grids(grids):
+        grid = grid_def["dimensions"]
         gd = sorted(grid, reverse=True)
         # Z-axis rotation: height locked, only swap X/Y
         rot0 = sd[0] <= gd[0] and sd[1] <= gd[1] and sd[2] <= gd[2]
@@ -87,7 +90,7 @@ def generate_scu_manifest(
             
     category = get_grid_category(grids_list)
 
-    grid_volume = sum(g[0] * g[1] * g[2] for g in grids_list)
+    grid_volume = total_usable_volume(grids_list)
     target_scu = int(grid_volume * target_fill_ratio)
 
     # Adjust target based on difficulty
@@ -268,9 +271,10 @@ def print_manifest_summary(manifest: List[Dict], grids_list: Optional[List[Tuple
     
     print(f"\n=== Cargo Manifest Summary ===")
     if grids_list:
-        grid_volume = sum(g[0] * g[1] * g[2] for g in grids_list)
+        grid_volume = total_usable_volume(grids_list)
         print(f"Grid Configurations: {grids_list} ({grid_volume} SCU capacity)")
-        print(f"Total Cargo: {total_scu} SCU ({total_scu/grid_volume*100:.1f}% utilization)")
+        utilization = total_scu / grid_volume * 100 if grid_volume > 0 else 0.0
+        print(f"Total Cargo: {total_scu} SCU ({utilization:.1f}% utilization)")
     else:
         print(f"Total Cargo: {total_scu} SCU")
     

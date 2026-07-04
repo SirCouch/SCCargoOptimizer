@@ -69,6 +69,7 @@ a = Analysis(
         "packing_core",
         "packing_core.box3d",
         "packing_core.drl_env",
+        "packing_core.grid_utils",
         "packing_core.mer_manager",
         "packing_core.models",
         "packing_core.utils",

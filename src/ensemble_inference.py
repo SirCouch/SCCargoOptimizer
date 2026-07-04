@@ -1,6 +1,7 @@
 import os
 import torch
 import numpy as np
+from packing_core.grid_utils import total_usable_volume
 from packing_core.utils import load_trained_model, pack_single_manifest
 
 class EnsembleRouter:
@@ -48,15 +49,11 @@ class EnsembleRouter:
 
     def route_manifest(self, ship_grids, manifest, diagnose=False):
         """
-        Calculates the total volume of the ship and routes the payload to the specialized model.
+        Calculates the usable volume of the ship and routes the payload to the specialized model.
         """
-        # Calculate total SCU volume across all grids
-        total_vol = 0
-        for grid in ship_grids:
-            dims = grid[0]
-            total_vol += dims[0] * dims[1] * dims[2]
+        total_vol = total_usable_volume(ship_grids)
 
-        print(f"Incoming Ship Volume: {total_vol} SCU. Routing to specialized model...")
+        print(f"Incoming Ship Usable Volume: {total_vol:g} SCU. Routing to specialized model...")
 
         # Select model based on breakpoints
         if total_vol <= 64 and self.actor_small is not None:

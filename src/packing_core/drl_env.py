@@ -3,16 +3,41 @@ import numpy as np
 from torch_geometric.data import Data
 from scu_manifest_generator import generate_scu_manifest, manifest_to_item_list, SCU_DEFINITIONS
 from .box3d import Box3D
+from .grid_utils import normalize_grids
 from .mer_manager import MERManager
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class DRLBinPackingEnv:
-    def __init__(self, grids_list=[((10, 10, 10), "Main")], max_stack_weight=100000.0):
-        self.grids_list = grids_list
-        self.grids = [{'dims': torch.tensor(g[0], dtype=torch.float, device=device), 'name': g[1]} for g in grids_list]
-        # Precomputed scalar grid volumes — avoids torch.prod().item() on the hot path.
-        self.grid_volumes = [float(g[0][0]) * float(g[0][1]) * float(g[0][2]) for g in grids_list]
+    def __init__(self, grids_list=None, max_stack_weight=100000.0):
+        if grids_list is None:
+            grids_list = [((10, 10, 10), "Main")]
+        self.grid_defs = normalize_grids(grids_list)
+        self.grids_list = [(tuple(g["dimensions"]), g["name"]) for g in self.grid_defs]
+        self.grids = [
+            {
+                'dims': torch.tensor(g["dimensions"], dtype=torch.float, device=device),
+                'name': g["name"],
+                'blocked': g["blocked"],
+            }
+            for g in self.grid_defs
+        ]
+        # Precomputed scalar usable volumes — avoids torch.prod().item() on the hot path.
+        self.grid_bounding_volumes = [
+            float(g["dimensions"][0]) * float(g["dimensions"][1]) * float(g["dimensions"][2])
+            for g in self.grid_defs
+        ]
+        self.grid_blocked_volumes = [
+            sum(
+                float(b["dimensions"][0]) * float(b["dimensions"][1]) * float(b["dimensions"][2])
+                for b in g["blocked"]
+            )
+            for g in self.grid_defs
+        ]
+        self.grid_volumes = [
+            max(0.0, bounding - blocked)
+            for bounding, blocked in zip(self.grid_bounding_volumes, self.grid_blocked_volumes)
+        ]
         self.total_ship_volume = sum(self.grid_volumes)
         self.max_stack_weight = max_stack_weight
 
@@ -41,12 +66,13 @@ class DRLBinPackingEnv:
         self._cached_mers = None
         self._grid_placed_vol = [0.0] * len(self.grids)
         self._grid_placed_count = [0] * len(self.grids)
+        self._seed_blockers()
 
-        # Combined volume for target SCU calculation
-        total_vol = int(sum(torch.prod(g['dims']).item() for g in self.grids))
+        # Combined usable volume for target SCU calculation
+        total_vol = int(sum(self.grid_volumes))
         dummy_dims = (total_vol, 1, 1)
         # Actual grid dimensions for physical fit filtering
-        actual_grids = [tuple(int(d) for d in g['dims'].tolist()) for g in self.grids]
+        actual_grids = self.grid_defs
 
         if cargo_manifest is None:
             diff = difficulty if difficulty is not None else "medium"
@@ -67,6 +93,51 @@ class DRLBinPackingEnv:
             self.current_item = None
 
         return self._build_graph_state()
+
+    def _placement_record(self, box, weight, priority, grid_idx, is_blocker=False, supports=True):
+        px = float(box.x1.item() if hasattr(box.x1, 'item') else box.x1)
+        py = float(box.y1.item() if hasattr(box.y1, 'item') else box.y1)
+        pz = float(box.z1.item() if hasattr(box.z1, 'item') else box.z1)
+        dw = float(box.width.item() if hasattr(box.width, 'item') else box.width)
+        dl = float(box.length.item() if hasattr(box.length, 'item') else box.length)
+        dh = float(box.height.item() if hasattr(box.height, 'item') else box.height)
+        return {
+            'box': box,
+            'weight': weight,
+            'priority': priority,
+            'grid_idx': grid_idx,
+            'x1': px, 'y1': py, 'z1': pz,
+            'x2': px + dw, 'y2': py + dl, 'z2': pz + dh,
+            'is_blocker': is_blocker,
+            'supports': supports,
+        }
+
+    def _seed_blockers(self):
+        for grid_idx, grid in enumerate(self.grids):
+            if not grid.get('blocked'):
+                continue
+
+            container_box = Box3D(torch.zeros(3), grid['dims'])
+            manager = self.mer_managers[grid_idx]
+            for blocker in grid['blocked']:
+                blocker_box = Box3D(
+                    torch.tensor(blocker["position"], dtype=torch.float),
+                    torch.tensor(blocker["dimensions"], dtype=torch.float),
+                )
+                if not container_box.contains(blocker_box):
+                    raise ValueError(
+                        f"Blocked cuboid on grid '{grid['name']}' is outside the grid bounds: {blocker}"
+                    )
+                self.placed_items.append(self._placement_record(
+                    blocker_box,
+                    weight=0.0,
+                    priority=0,
+                    grid_idx=grid_idx,
+                    is_blocker=True,
+                    supports=blocker.get("supports", True),
+                ))
+                manager.update(blocker_box)
+        self._cached_mers = None
 
     def _get_item_features(self, item_tuple):
         w, l, h, weight, priority = item_tuple
@@ -148,19 +219,12 @@ class DRLBinPackingEnv:
             return self._build_graph_state(), -5.0, self.current_item is None, {"feasible": False}
 
         placed_item = Box3D(placement_position, item_dims)
-        # Cache coords as plain Python floats to avoid CPU↔GPU sync per constraint check.
-        px = float(placement_position[0].item() if hasattr(placement_position[0], 'item') else placement_position[0])
-        py = float(placement_position[1].item() if hasattr(placement_position[1], 'item') else placement_position[1])
-        pz = float(placement_position[2].item() if hasattr(placement_position[2], 'item') else placement_position[2])
-        dw = float(item_dims[0].item()); dl = float(item_dims[1].item()); dh = float(item_dims[2].item())
-        self.placed_items.append({
-            'box': placed_item,
-            'weight': self.current_item['weight'],
-            'priority': self.current_item['priority'],
-            'grid_idx': grid_idx,
-            'x1': px, 'y1': py, 'z1': pz,
-            'x2': px + dw, 'y2': py + dl, 'z2': pz + dh,
-        })
+        self.placed_items.append(self._placement_record(
+            placed_item,
+            weight=self.current_item['weight'],
+            priority=self.current_item['priority'],
+            grid_idx=grid_idx,
+        ))
         self.successful_placements += 1
         self._grid_placed_vol[grid_idx] += float(placed_item.volume.item())
         self._grid_placed_count[grid_idx] += 1
@@ -219,6 +283,8 @@ class DRLBinPackingEnv:
         supported = 0.0
         z1 = item_box.z1.item()
         for placed in grid_items:
+            if placed.get('is_blocker') and not placed.get('supports', True):
+                continue
             pb = placed['box']
             if abs(pb.z2.item() - z1) < 0.001:
                 ox = max(0.0, min(item_box.x2.item(), pb.x2.item()) - max(item_box.x1.item(), pb.x1.item()))
@@ -228,6 +294,8 @@ class DRLBinPackingEnv:
 
     def _check_stacking_weight(self, item_box, item_weight, grid_items):
         for placed in grid_items:
+            if placed.get('is_blocker'):
+                continue
             placed_box = placed['box']
             # Check items below the current placement (placed item's top <= our bottom)
             if (placed_box.z2 <= item_box.z1 and
@@ -242,6 +310,8 @@ class DRLBinPackingEnv:
 
     def _check_priority_constraint(self, item_box, item_priority, grid_items):
         for placed in grid_items:
+            if placed.get('is_blocker'):
+                continue
             placed_box = placed['box']
             placed_priority = placed['priority']
             # Higher-priority items (lower number) must be closer to the front (lower Y)
@@ -256,8 +326,8 @@ class DRLBinPackingEnv:
         item_volume = torch.prod(dimensions)
         # #1: Normalize reward per-grid volume, not total ship volume.
         # This keeps the reward signal strength consistent regardless of ship size.
-        grid_volume = torch.prod(grid_dims)
-        volume_ratio = item_volume / grid_volume
+        grid_volume = self.grid_volumes[grid_idx]
+        volume_ratio = float(item_volume.item()) / grid_volume if grid_volume > 0 else 0.0
         reward = float(volume_ratio * 10.0)
 
         # Pull position/dims/grid_dims as floats once; no more tensor ops in the hot path.
@@ -285,7 +355,10 @@ class DRLBinPackingEnv:
 
         # Priority clustering bonus
         item_priority = self.current_item['priority']
-        same_prio_count = sum(1 for p in grid_items[:-1] if p['priority'] == item_priority)
+        same_prio_count = sum(
+            1 for p in grid_items[:-1]
+            if not p.get('is_blocker') and p['priority'] == item_priority
+        )
         touching_reward += min(3.0, 0.4 * same_prio_count)
 
         # Support (stacking) bonus — uses cached floats
@@ -296,6 +369,8 @@ class DRLBinPackingEnv:
             else:
                 supported_area = 0.0
                 for p in grid_items[:-1]:
+                    if p.get('is_blocker') and not p.get('supports', True):
+                        continue
                     if abs(p['z2'] - pz) < 0.001:
                         ox = min(ix2, p['x2']) - max(px, p['x1'])
                         oy = min(iy2, p['y2']) - max(py, p['y1'])
@@ -314,7 +389,7 @@ class DRLBinPackingEnv:
                     abs(iz2 - p['z1']) < 0.001):
                 touching_reward += 0.5
 
-            if abs(p['priority'] - self.current_item['priority']) <= 1:
+            if not p.get('is_blocker') and abs(p['priority'] - self.current_item['priority']) <= 1:
                 touching_reward += 0.25
 
         reward += 2.0 + min(touching_reward, 2.0)
@@ -323,6 +398,7 @@ class DRLBinPackingEnv:
         if len(self.grids) > 1:
             fill_ratios = [
                 self._grid_placed_vol[gidx] / self.grid_volumes[gidx]
+                if self.grid_volumes[gidx] > 0 else 0.0
                 for gidx in range(len(self.grids))
             ]
             balance = 1.0 - float(np.std(fill_ratios))
@@ -581,22 +657,24 @@ class DRLBinPackingEnv:
         for p in grid_items:
             px1 = p['x1']; py1 = p['y1']; pz1 = p['z1']
             px2 = p['x2']; py2 = p['y2']; pz2 = p['z2']
+            is_blocker = p.get('is_blocker', False)
             # Overlap (strict: touching faces don't count)
             if not (ix2 <= px1 or px2 <= px or iy2 <= py1 or py2 <= py or iz2 <= pz1 or pz2 <= pz):
                 return False
-            # Stacking weight: placed is directly below this item
-            if (pz2 <= pz and px1 < ix2 and px2 > px and py1 < iy2 and py2 > py):
-                if p['weight'] + weight > self.max_stack_weight:
+            if not is_blocker:
+                # Stacking weight: placed is directly below this item
+                if (pz2 <= pz and px1 < ix2 and px2 > px and py1 < iy2 and py2 > py):
+                    if p['weight'] + weight > self.max_stack_weight:
+                        return False
+                    if weight > p['weight']:
+                        return False
+                # Priority: higher-priority (lower number) must be at lower or equal y
+                if priority < p['priority'] and py > py1:
                     return False
-                if weight > p['weight']:
+                if priority > p['priority'] and py < py1:
                     return False
-            # Priority: higher-priority (lower number) must be at lower or equal y
-            if priority < p['priority'] and py > py1:
-                return False
-            if priority > p['priority'] and py < py1:
-                return False
             # Support accumulation (only when our bottom face is at pz > 0)
-            if pz > 0.001 and abs(pz2 - pz) < 0.001:
+            if pz > 0.001 and (not is_blocker or p.get('supports', True)) and abs(pz2 - pz) < 0.001:
                 ox = min(ix2, px2) - max(px, px1)
                 oy = min(iy2, py2) - max(py, py1)
                 if ox > 0 and oy > 0:

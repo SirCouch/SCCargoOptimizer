@@ -14,6 +14,7 @@ from collections import deque
 plt = None
 from torch_geometric.data import Batch
 from .drl_env import DRLBinPackingEnv
+from .grid_utils import serialize_grids
 from .models import ActorGNN, CriticGNN, SharedGNNBackbone
 from scu_manifest_generator import manifest_to_item_list, SCU_DEFINITIONS
 
@@ -27,7 +28,7 @@ def load_ships_from_json(path='ships_cargo_grids.json'):
     try:
         with open(path, 'r') as f:
             data = json.load(f)
-            return [[(tuple(g['dimensions']), g['name']) for g in ship['grids']] for ship in data['ships']]
+            return [serialize_grids(ship.get('grids', [])) for ship in data['ships']]
     except Exception as e:
         print(f"Failed to load ships from {path}: {e}")
         return [[((10, 10, 10), "Main")]]
@@ -515,7 +516,7 @@ def evaluate_agent(env, actor, num_episodes=10, visualize=False):
                 state = env.reset(difficulty="hard")  # Evaluate on hard difficulty
                 episode_reward = 0
                 total_item_volume = 0
-                container_volume = sum(torch.prod(g['dims']).item() for g in env.grids)
+                container_volume = env.total_ship_volume
 
                 # Episode loop
                 while True:
@@ -559,7 +560,7 @@ def evaluate_agent(env, actor, num_episodes=10, visualize=False):
 
                 # Calculate metrics
                 success_rate = env.successful_placements / env.total_items if env.total_items > 0 else 0
-                volume_utilization = total_item_volume / container_volume
+                volume_utilization = total_item_volume / container_volume if container_volume > 0 else 0.0
 
                 episode_rewards.append(episode_reward)
                 success_rates.append(success_rate)
@@ -628,6 +629,7 @@ def visualize_packing(env):
         for i, placed in enumerate(env.placed_items):
             box = placed['box']
             priority = placed['priority']
+            is_blocker = placed.get('is_blocker', False)
 
             # Define the vertices of the box
             x, y, z = [v.item() for v in box.position]
@@ -654,13 +656,13 @@ def visualize_packing(env):
                 [box_vertices[1], box_vertices[2], box_vertices[6], box_vertices[5]]  # Right
             ]
 
-        # Color based on priority (1-5)
+        # Color based on priority (1-5); blockers are rendered as neutral cutouts.
             import matplotlib
             cmap = matplotlib.colormaps.get_cmap('viridis')
-            color = cmap((priority - 1) / 4)  # normalize to [0, 1]
+            color = (0.35, 0.35, 0.35, 0.45) if is_blocker else cmap((priority - 1) / 4)
 
             # Create a 3D collection of polygons
-            box_collection = Poly3DCollection(box_faces, alpha=0.7)
+            box_collection = Poly3DCollection(box_faces, alpha=0.35 if is_blocker else 0.7)
             box_collection.set_facecolor(color)
             box_collection.set_edgecolor('black')
 
@@ -669,7 +671,7 @@ def visualize_packing(env):
 
             # Add text label in the center of the box
             box_center = [x + w / 2, y + l / 2, z + h / 2]
-            ax.text(box_center[0], box_center[1], box_center[2], str(i + 1),
+            ax.text(box_center[0], box_center[1], box_center[2], "B" if is_blocker else str(i + 1),
                     color='white', ha='center', va='center', fontsize=8)
 
         # Set labels and title
@@ -691,12 +693,14 @@ def visualize_packing(env):
 
         # Add volume utilization information
         total_volume = 0
-        container_volume = float(sum(torch.prod(g['dims']).item() for g in env.grids))
+        container_volume = float(env.total_ship_volume)
         for placed in env.placed_items:
+            if placed.get('is_blocker'):
+                continue
             box = placed['box']
             total_volume += float(box.volume)
 
-        utilization = total_volume / container_volume * 100
+        utilization = total_volume / container_volume * 100 if container_volume > 0 else 0.0
         plt.figtext(0.02, 0.02, f"Volume Utilization: {utilization:.1f}%", fontsize=10)
         plt.figtext(0.02, 0.05, f"Success Rate: {env.successful_placements}/{env.total_items}", fontsize=10)
 
@@ -854,7 +858,10 @@ def pack_single_manifest(actor, grids_list, manifest, device=None, diagnose=Fals
 
     # Prepare results
     placements = []
-    for i, placed in enumerate(env.placed_items):
+    cargo_idx = 0
+    for placed in env.placed_items:
+        if placed.get('is_blocker'):
+            continue
         box = placed['box']
 
         # Find which SCU type this corresponds to (compare sorted dims since rotation changes order)
@@ -866,8 +873,9 @@ def pack_single_manifest(actor, grids_list, manifest, device=None, diagnose=Fals
                 scu_type = scu
                 break
 
+        cargo_idx += 1
         placement = {
-            "item_id": f"{scu_type}_{i + 1:03d}",
+            "item_id": f"{scu_type}_{cargo_idx:03d}",
             "scu_type": scu_type or "Unknown",
             "position": [box.x1.item(), box.y1.item(), box.z1.item()],
             "dimensions": dims,
@@ -879,9 +887,13 @@ def pack_single_manifest(actor, grids_list, manifest, device=None, diagnose=Fals
 
     # Calculate metrics
     success_rate = env.successful_placements / env.total_items if env.total_items > 0 else 0
-    total_volume = sum(p['box'].volume for p in env.placed_items)
-    container_volume = sum(torch.prod(g['dims']).item() for g in env.grids)
-    utilization = total_volume / container_volume
+    total_volume = sum(
+        float(p['box'].volume.item())
+        for p in env.placed_items
+        if not p.get('is_blocker')
+    )
+    container_volume = env.total_ship_volume
+    utilization = total_volume / container_volume if container_volume > 0 else 0.0
 
     # Identify unplaced items: the ACTUAL skipped indices, plus any manifest tail
     # the loop never reached (shouldn't normally happen, but guard against it).
@@ -904,14 +916,16 @@ def pack_single_manifest(actor, grids_list, manifest, device=None, diagnose=Fals
 
     result = {
         "success": True,
-        "ship_grids": grids_list,
+        "ship_grids": serialize_grids(env.grid_defs),
         "placements": placements,
         "unplaced_items": unplaced_items,
         "metrics": {
             "success_rate": float(success_rate),
             "volume_utilization": float(utilization),
             "items_placed": env.successful_placements,
-            "total_items": env.total_items
+            "total_items": env.total_items,
+            "usable_volume": float(env.total_ship_volume),
+            "blocked_volume": float(sum(env.grid_blocked_volumes)),
         }
     }
 

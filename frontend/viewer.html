@@ -8,69 +8,90 @@
     --bg: #0d1117; --panel: rgba(22,27,34,0.92);
     --border: #30363d; --fg: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
     --warn: #d29922; --bad: #f85149; --good: #3fb950;
+    --btn-bg: #21262d; --btn-hover: #30363d; --shadow: rgba(0,0,0,0.45);
   }
   html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg);
                font-family: -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
   #canvas-wrap { position: absolute; inset: 0; }
+  #scanlines { position: absolute; inset: 0; pointer-events: none; z-index: 4; display: none;
+               background: repeating-linear-gradient(0deg, rgba(0,0,0,0.16) 0 1px, transparent 1px 3px); }
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
            backdrop-filter: blur(4px); }
   #hud { position: absolute; top: 10px; left: 10px; padding: 10px 14px;
-         font-size: 12px; line-height: 1.6; max-width: 220px; pointer-events: none; }
+         font-size: 12px; line-height: 1.6; max-width: 220px; pointer-events: none; z-index: 5; }
   #hud .k { color: var(--muted); }
   #hud .v { color: var(--fg); font-weight: 600; }
   #hud .accent { color: var(--accent); }
   #legend { position: absolute; top: 10px; right: 10px; padding: 10px 14px;
-            font-size: 12px; min-width: 110px; pointer-events: none; }
+            font-size: 12px; min-width: 110px; pointer-events: none; z-index: 5; }
   #legend .title { color: var(--muted); font-size: 10px; text-transform: uppercase;
                    letter-spacing: 0.6px; margin-bottom: 6px; }
   .sw { display: inline-block; width: 14px; height: 14px; margin-right: 8px;
-        vertical-align: middle; border-radius: 2px; border: 1px solid #555; }
+        vertical-align: middle; border-radius: 2px; border: 1px solid rgba(0,0,0,0.4); }
   #controls { position: absolute; bottom: 10px; left: 10px; padding: 8px 12px;
               font-size: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-              max-width: calc(100% - 320px); }
+              max-width: calc(100% - 320px); z-index: 5; }
   #info { position: absolute; bottom: 10px; right: 10px; padding: 10px 14px;
-          font-size: 12px; max-width: 280px; display: none; }
+          font-size: 12px; max-width: 280px; display: none; z-index: 5; }
   #tip { position: absolute; top: 50%; left: 50%; transform: translate(-50%, 0);
          margin-top: 80px; padding: 8px 16px; font-size: 12px; pointer-events: none;
          display: none; color: var(--fg); border: 1px solid var(--accent);
-         box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
-  #tip kbd { background: #21262d; border: 1px solid var(--border); border-radius: 3px;
+         box-shadow: 0 4px 12px var(--shadow); z-index: 5; }
+  #tip kbd, #help kbd { background: var(--btn-bg); border: 1px solid var(--border); border-radius: 3px;
              padding: 1px 6px; font-family: Consolas, monospace; font-size: 11px;
              color: var(--fg); margin: 0 2px; }
   #help-btn { position: absolute; top: 10px; right: 140px; z-index: 5;
               width: 28px; height: 28px; padding: 0; border-radius: 14px;
               font-size: 14px; font-weight: 700; }
   #help { position: absolute; top: 48px; right: 10px; padding: 14px 18px;
-          font-size: 12px; max-width: 320px; display: none; line-height: 1.7; z-index: 6; }
+          font-size: 12px; max-width: 340px; display: none; line-height: 1.7; z-index: 6; }
   #help h4 { color: var(--accent); font-size: 10px; text-transform: uppercase;
              letter-spacing: 0.7px; margin: 12px 0 4px 0; font-weight: 700; }
   #help h4:first-child { margin-top: 0; }
-  #help kbd { background: #21262d; border: 1px solid var(--border);
-              border-radius: 3px; padding: 1px 6px; font-family: Consolas, monospace;
-              font-size: 11px; color: var(--fg); }
   #help .row { display: flex; justify-content: space-between; gap: 14px; align-items: baseline; }
   #help .k { color: var(--muted); }
   #info .ttl { color: var(--accent); font-weight: 600; margin-bottom: 4px; font-size: 13px; }
   #info .row { display: flex; justify-content: space-between; gap: 12px; }
   #info .k { color: var(--muted); }
   #info .badge { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 10px;
-                 text-transform: uppercase; letter-spacing: 0.5px; margin-left: 6px; }
-  #info .badge.placed { background: #033a16; color: var(--good); }
-  #info .badge.unplaced { background: #3a1a02; color: var(--warn); }
-  #info .badge.outside { background: #3a0e10; color: var(--bad); }
-  button { background: #21262d; color: var(--fg); border: 1px solid var(--border);
+                 text-transform: uppercase; letter-spacing: 0.5px; margin-left: 6px;
+                 background: var(--btn-bg); }
+  #info .badge.placed { color: var(--good); }
+  #info .badge.unplaced { color: var(--warn); }
+  #info .badge.outside { color: var(--bad); }
+  button { background: var(--btn-bg); color: var(--fg); border: 1px solid var(--border);
            padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
            font-family: inherit; }
-  button:hover { background: #30363d; border-color: #6e7681; }
-  button.active { background: var(--accent); color: white; border-color: var(--accent); }
+  button:hover { background: var(--btn-hover); border-color: var(--muted); }
+  button.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  select { background: var(--btn-bg); color: var(--fg); border: 1px solid var(--border);
+           border-radius: 4px; padding: 3px 6px; font-family: inherit; font-size: 12px; }
+  select:hover { border-color: var(--muted); }
   label { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
   input[type=checkbox] { accent-color: var(--accent); }
   input[type=range] { width: 80px; accent-color: var(--accent); }
   .sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+
+  /* ── 8-bit style: chunky square UI, hard shadows, monospace, pixelated canvas ── */
+  body.retro, body.retro button, body.retro select, body.retro label, body.retro input {
+    font-family: Consolas, "Courier New", monospace; }
+  body.retro .panel { border-radius: 0; border-width: 2px; backdrop-filter: none;
+                      box-shadow: 4px 4px 0 var(--shadow); }
+  body.retro button, body.retro select { border-radius: 0; border-width: 2px;
+                      text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px;
+                      box-shadow: 2px 2px 0 var(--shadow); }
+  body.retro button:active { transform: translate(2px, 2px); box-shadow: none; }
+  body.retro #help-btn { border-radius: 0; }
+  body.retro .sw { border-radius: 0; }
+  body.retro #info .badge { border-radius: 0; }
+  body.retro #hud, body.retro #legend, body.retro #help { text-transform: uppercase; font-size: 11px; }
+  body.retro #canvas-wrap canvas { image-rendering: pixelated; }
+  body.retro #scanlines { display: block; }
 </style>
 </head>
 <body>
 <div id="canvas-wrap"></div>
+<div id="scanlines"></div>
 <div id="hud" class="panel">Awaiting packing result…</div>
 <div id="legend" class="panel"></div>
 <div id="info" class="panel"></div>
@@ -80,15 +101,18 @@
   <h4>Camera</h4>
   <div class="row"><span class="k">Orbit</span><span><kbd>Left drag</kbd> empty space</span></div>
   <div class="row"><span class="k">Pan</span><span><kbd>Right drag</kbd></span></div>
-  <div class="row"><span class="k">Zoom</span><span><kbd>Scroll</kbd></span></div>
+  <div class="row"><span class="k">Zoom</span><span><kbd>Scroll</kbd> (toward cursor)</span></div>
+  <div class="row"><span class="k">Focus a box</span><span><kbd>Double-click</kbd> it</span></div>
   <div class="row"><span class="k">Reframe</span><span><kbd>Reset View</kbd> button</span></div>
   <h4>Move a Box</h4>
   <div class="row"><span class="k">Slide & auto-stack</span><span><kbd>Left drag</kbd> a box</span></div>
   <div class="row"><span class="k">Free vertical lift</span><span><kbd>Shift</kbd> + <kbd>drag</kbd></span></div>
+  <div class="row"><span class="k">Drop preview</span><span>Ghost = landing cell · green ok, red blocked</span></div>
   <div class="row"><span class="k">Snap on drop</span><span>Integer cells + gravity (toggle <kbd>Snap</kbd>)</span></div>
-  <div class="row"><span class="k">Collisions</span><span>Red tint = blocked · drop reverts</span></div>
+  <div class="row"><span class="k">Blocked drop</span><span>Lands in nearest free cell, else returns</span></div>
   <div class="row"><span class="k">Inspect</span><span>Click a box (no drag)</span></div>
-  <div class="row"><span class="k">Rotate 90°</span><span>Select box, press <kbd>R</kbd></span></div>
+  <div class="row"><span class="k">Rotate 90°</span><span><kbd>R</kbd> — selected or mid-drag</span></div>
+  <div class="row"><span class="k">Nudge</span><span><kbd>←→↑↓</kbd> selected box · <kbd>PgUp</kbd>/<kbd>PgDn</kbd> lift</span></div>
   <h4>Unplaced Items</h4>
   <div class="row"><span class="k">Where</span><span>Amber zone, right side</span></div>
   <div class="row"><span class="k">Use</span><span>Drag into a grid</span></div>
@@ -96,6 +120,7 @@
   <div class="row"><span class="k">Reset positions</span><span>Undoes all manual moves</span></div>
   <div class="row"><span class="k">Explode</span><span>Spread items from grid centers</span></div>
   <div class="row"><span class="k">Outside grid</span><span>Orange edge = invalid spot for the model</span></div>
+  <div class="row"><span class="k">Style / Palette</span><span>Bottom bar — 8-Bit mode, manufacturer colors</span></div>
 </div>
 <div id="err" style="display:none; position:absolute; inset:14px; background:rgba(139,0,0,0.92);
      padding:14px; border-radius:6px; font-size:12px; white-space:pre-wrap; overflow:auto;
@@ -124,6 +149,9 @@
   <label title="Show 1-unit floor grid lines for spatial reference"><input type="checkbox" id="gridToggle" onchange="toggleGrid()"> Grid lines</label>
   <span class="sep"></span>
   <label title="Spread items outward from each grid's center for inspection">Explode <input type="range" id="explodeSlider" min="0" max="100" value="0" oninput="setExplode(this.value)"></label>
+  <span class="sep"></span>
+  <label title="Rendering style">Style <select id="styleSelect" onchange="setViewerStyle(this.value)"></select></label>
+  <label title="Color palette inspired by ship manufacturers' in-game UI">Palette <select id="paletteSelect" onchange="setViewerPalette(this.value)"></select></label>
 </div>
 
 <script type="importmap">
@@ -139,45 +167,172 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const PRIORITY_COLORS = {
-  1: 0xef476f, 2: 0xffd166, 3: 0x06d6a0, 4: 0x118ab2, 5: 0x8338ec
+// ──── Themes: a rendering STYLE × a color PALETTE ────────────────────────────
+// Priority colors were generated in OKLCH and validated (lightness band, chroma
+// floor, CVD separation, contrast vs each theme's surface). The legend's text
+// labels + box outline edges provide the secondary encoding for borderline pairs.
+
+const STYLES = {
+  modern: { label: 'Modern', pixel: false, renderScale: 1, amb: 0.55, key: 0.9, fill: 0.35 },
+  retro:  { label: '8-Bit',  pixel: true,  renderScale: 0.45, amb: 0.85, key: 0.45, fill: 0.0 },
 };
+
+const PALETTES = {
+  default: {
+    label: 'Default',
+    css: { bg: '#0d1117', panel: 'rgba(22,27,34,0.92)', border: '#30363d', fg: '#e6edf3',
+           muted: '#8b949e', accent: '#58a6ff', warn: '#d29922', bad: '#f85149', good: '#3fb950',
+           'btn-bg': '#21262d', 'btn-hover': '#30363d', shadow: 'rgba(0,0,0,0.45)' },
+    bg3d: '#0d1117', ws: '#161b22', floor: '#1e2a36', wire: '#6e7681', helper: '#2a313a',
+    staging: '#3a1a02', edgeIn: '#000000',
+    priorities: ['#e14660', '#c8800d', '#3ca059', '#1b8abd', '#8b5dce'],
+  },
+  drake: {
+    label: 'Drake',
+    css: { bg: '#120c07', panel: 'rgba(28,19,12,0.93)', border: '#4a3524', fg: '#f2e7da',
+           muted: '#a68d75', accent: '#ff6a2b', warn: '#e0a33c', bad: '#ff4633', good: '#4fa866',
+           'btn-bg': '#251a10', 'btn-hover': '#3a2818', shadow: 'rgba(0,0,0,0.5)' },
+    bg3d: '#100b08', ws: '#191009', floor: '#2b1b10', wire: '#8a6547', helper: '#3a2818',
+    staging: '#402803', edgeIn: '#000000',
+    priorities: ['#de3d34', '#d4771a', '#737409', '#4fa866', '#3077ad'],
+  },
+  origin: {
+    label: 'Origin',
+    css: { bg: '#eef1f4', panel: 'rgba(255,255,255,0.92)', border: '#c3ccd6', fg: '#1c2733',
+           muted: '#5f6b78', accent: '#0289a8', warn: '#9a6700', bad: '#c93a31', good: '#1a7f37',
+           'btn-bg': '#ffffff', 'btn-hover': '#dfe6ec', shadow: 'rgba(30,40,50,0.18)' },
+    bg3d: '#dfe5ea', ws: '#cbd4dc', floor: '#b7c4d0', wire: '#7d92a6', helper: '#a8b6c4',
+    staging: '#e6c07c', edgeIn: '#223041',
+    priorities: ['#ac2f3b', '#c56c21', '#106e20', '#03999f', '#4048a6'],
+  },
+  rsi: {
+    label: 'RSI',
+    css: { bg: '#06121f', panel: 'rgba(10,25,41,0.92)', border: '#1d4062', fg: '#dcebfa',
+           muted: '#7fa3c4', accent: '#3fb6ff', warn: '#d9a03c', bad: '#ff5d5d', good: '#35d07f',
+           'btn-bg': '#0d2438', 'btn-hover': '#16334e', shadow: 'rgba(0,0,0,0.5)' },
+    bg3d: '#06121f', ws: '#0a1a2b', floor: '#10304a', wire: '#45719c', helper: '#16334e',
+    staging: '#35260a', edgeIn: '#000000',
+    priorities: ['#d64556', '#c8800d', '#5e9f50', '#1997cf', '#7e53bc'],
+  },
+  aegis: {
+    label: 'Aegis',
+    css: { bg: '#0b100d', panel: 'rgba(17,24,20,0.93)', border: '#2c3b32', fg: '#dde8df',
+           muted: '#8ba392', accent: '#4fd1a5', warn: '#d0a136', bad: '#e5484d', good: '#62c462',
+           'btn-bg': '#16211b', 'btn-hover': '#24352b', shadow: 'rgba(0,0,0,0.5)' },
+    bg3d: '#0b100d', ws: '#101813', floor: '#1a2a20', wire: '#567a64', helper: '#24352b',
+    staging: '#3a2a08', edgeIn: '#000000',
+    priorities: ['#cf4040', '#d37812', '#66740a', '#24a684', '#3275b4'],
+  },
+  misc: {
+    label: 'MISC',
+    css: { bg: '#0c1416', panel: 'rgba(16,28,30,0.92)', border: '#29444a', fg: '#e2f1f0',
+           muted: '#86a8a6', accent: '#35d0ba', warn: '#d99e35', bad: '#ef476f', good: '#6ede8a',
+           'btn-bg': '#12262a', 'btn-hover': '#1d3a40', shadow: 'rgba(0,0,0,0.5)' },
+    bg3d: '#0c1416', ws: '#101d20', floor: '#16323a', wire: '#4c7a80', helper: '#1d3a40',
+    staging: '#3a2a06', edgeIn: '#000000',
+    priorities: ['#d3456c', '#cc7d1b', '#719b40', '#06999a', '#7b67cc'],
+  },
+  crusader: {
+    label: 'Crusader',
+    css: { bg: '#081226', panel: 'rgba(12,22,44,0.92)', border: '#24406e', fg: '#e8eefc',
+           muted: '#8fa3cc', accent: '#ffa62b', warn: '#dcae4a', bad: '#ff4f58', good: '#43d17c',
+           'btn-bg': '#101f3e', 'btn-hover': '#1b2f57', shadow: 'rgba(0,0,0,0.5)' },
+    bg3d: '#081226', ws: '#0c1830', floor: '#14264a', wire: '#48679c', helper: '#1b2f57',
+    staging: '#3a2606', edgeIn: '#000000',
+    priorities: ['#da404e', '#d6760c', '#776a0a', '#24a592', '#3772bb'],
+  },
+  argo: {
+    label: 'Argo',
+    css: { bg: '#0f0f0d', panel: 'rgba(24,23,18,0.93)', border: '#4a452c', fg: '#f0eee3',
+           muted: '#a3a08a', accent: '#ffd60a', warn: '#d9a03c', bad: '#ff4438', good: '#7ac74f',
+           'btn-bg': '#211f16', 'btn-hover': '#35321f', shadow: 'rgba(0,0,0,0.5)' },
+    bg3d: '#0f0f0d', ws: '#171610', floor: '#262415', wire: '#7a744c', helper: '#35321f',
+    staging: '#3a2a02', edgeIn: '#000000',
+    priorities: ['#db4241', '#c08a11', '#58994a', '#1996c3', '#7c50a8'],
+  },
+};
+
+let styleKey = 'modern';
+let paletteKey = 'default';
+try {
+  if (STYLES[localStorage.getItem('cargoViewerStyle')]) styleKey = localStorage.getItem('cargoViewerStyle');
+  if (PALETTES[localStorage.getItem('cargoViewerPalette')]) paletteKey = localStorage.getItem('cargoViewerPalette');
+} catch (e) { /* storage unavailable */ }
+let STYLE = STYLES[styleKey];
+let PAL = PALETTES[paletteKey];
+
 const GRID_GAP = 2.0;
 const STAGING_GAP = 4.0;     // gap between grids and the unplaced staging zone
-const STAGING_DEPTH = 2.0;   // depth of the staging row
 
 let scene, camera, renderer, orbit;
-let dragState = null;  // { record, startPos, plane, offset, mode, lastValid, hasMoved }
-let itemMeshes = []; // {mesh, edge, base, gridCenter, info, unplaced, originalPos}
+let ambLight, keyLight, fillLight;
+let dragState = null;  // { record, startPos, plane, offset, mode, lastValid, hasMoved, colliding }
+let itemMeshes = []; // {mesh, edge, mats, base, gridCenter, info, unplaced, originalPos, dims, geomDims}
+let blockerMeshes = []; // fixed cutout/obstacle records used for collision/support only
 let gridMeshes = []; // visuals for grid bounds (wireframe, label, floor)
 let gridHelpers = []; // overlaid integer grid lines
 let workspaceFloor = null;
 let stagingZone = null;
-let raycaster, mouse;
-let selectedMesh = null;
-let originalMaterial = null;
+let raycaster;
+let selectedRec = null;  // currently selected item record
+let hoverRec = null;     // item record under the cursor
 let defaultCam = { pos: new THREE.Vector3(20, 20, 25), target: new THREE.Vector3(0, 0, 0) };
 let explodeFactor = 0;
 let lastGrids = [];          // [[dims, name], ...]
 let lastGridOrigins = {};    // grid_idx -> x offset
 let lastGridCenters = {};    // grid_idx -> Vector3
+let lastPriorities = [];     // priorities present in the last payload, for the legend
+let tweens = [];             // active animations, updated each frame
+let camTween = null;
+let ghostGroup = null;       // drop-preview ghost (edges + footprint)
+let ghostKey = '';
+let clickStart = null;       // pointer-down screen coords, to tell clicks from drags
+
+function gridDims(g) {
+  return Array.isArray(g) ? g[0] : g.dimensions;
+}
+
+function gridName(g) {
+  return Array.isArray(g) ? g[1] : g.name;
+}
+
+function gridBlocked(g) {
+  return (Array.isArray(g) ? g[2] : g.blocked) || [];
+}
+
+function blockerPosition(b) {
+  return Array.isArray(b) ? b[0] : b.position;
+}
+
+function blockerDims(b) {
+  return Array.isArray(b) ? b[1] : b.dimensions;
+}
+
+function blockerSupports(b) {
+  return Array.isArray(b) && b.length > 2 ? !!b[2] : b.supports !== false;
+}
 
 function init() {
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0d1117);
+  scene.background = new THREE.Color(PAL.bg3d);
 
   const wrap = document.getElementById('canvas-wrap');
   camera = new THREE.PerspectiveCamera(50, wrap.clientWidth / wrap.clientHeight, 0.1, 2000);
   camera.position.copy(defaultCam.pos);
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(wrap.clientWidth, wrap.clientHeight);
-  renderer.setPixelRatio(window.devicePixelRatio);
   wrap.appendChild(renderer.domElement);
+  applyRenderSize();
 
   orbit = new OrbitControls(camera, renderer.domElement);
   orbit.enableDamping = true;
   orbit.dampingFactor = 0.08;
+  orbit.zoomToCursor = true;                     // scroll zooms toward the pointer
+  orbit.maxPolarAngle = Math.PI / 2 - 0.02;      // never sink below the floor
+  orbit.minDistance = 3;
+  orbit.maxDistance = 400;
+  // A user grab takes over from any in-flight camera animation.
+  orbit.addEventListener('start', () => { killTween(camTween); camTween = null; });
 
   // Custom pointer drag: horizontal-plane by default, Shift+drag for vertical lift.
   // Use capture phase so we run before OrbitControls (which lives on the same canvas).
@@ -186,46 +341,164 @@ function init() {
   window.addEventListener('pointermove', onPointerDrag);
   window.addEventListener('pointerup', onPointerUp);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-  const key = new THREE.DirectionalLight(0xffffff, 0.9);
-  key.position.set(30, 50, 30); scene.add(key);
-  const fill = new THREE.DirectionalLight(0x88aaff, 0.35);
-  fill.position.set(-30, 20, -30); scene.add(fill);
+  ambLight = new THREE.AmbientLight(0xffffff, STYLE.amb);
+  scene.add(ambLight);
+  keyLight = new THREE.DirectionalLight(0xffffff, STYLE.key);
+  keyLight.position.set(30, 50, 30); scene.add(keyLight);
+  fillLight = new THREE.DirectionalLight(0x88aaff, STYLE.fill);
+  fillLight.position.set(-30, 20, -30); scene.add(fillLight);
 
   scene.add(new THREE.AxesHelper(3));
 
   raycaster = new THREE.Raycaster();
-  mouse = new THREE.Vector2();
   renderer.domElement.addEventListener('click', onCanvasClick);
+  renderer.domElement.addEventListener('dblclick', onDblClick);
 
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('resize', onResize);
   animate();
 }
 
+// Buffer size follows the style: full-res for modern, low-res upscaled with
+// CSS image-rendering:pixelated for the 8-bit look.
+function applyRenderSize() {
+  const wrap = document.getElementById('canvas-wrap');
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  if (STYLE.pixel) {
+    renderer.setPixelRatio(1);
+    renderer.setSize(Math.max(2, Math.floor(w * STYLE.renderScale)),
+                     Math.max(2, Math.floor(h * STYLE.renderScale)), false);
+    renderer.domElement.style.width = '100%';
+    renderer.domElement.style.height = '100%';
+  } else {
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(w, h);
+  }
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+
 function onKeyDown(event) {
-  if (event.key !== 'r' && event.key !== 'R') return;
   const tag = (event.target && event.target.tagName) || '';
-  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-  if (!selectedMesh) return;
-  rotateItem(selectedMesh.userData);
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+  if (event.key === 'r' || event.key === 'R') {
+    const r = dragState ? dragState.record : selectedRec;
+    if (r) rotateItem(r);
+    return;
+  }
+
+  // Arrow-key nudge for the selected box (1 cell, camera-relative).
+  if (dragState || !selectedRec) return;
+  const delta = nudgeDelta(event.key);
+  if (!delta) return;
+  event.preventDefault();
+  const r = selectedRec;
+  const cand = r.mesh.position.clone().add(delta);
+  if (cand.y < r.dims[2] / 2 - 0.001) return;  // don't push through the floor
+  if (collidesAt(r, cand)) {
+    showTip('Blocked — something is in the way', 1200);
+    return;
+  }
+  setItemPos(r, cand);
+  setBaseFromCurrent(r);
+  updateValidity(r);
+}
+
+// Map arrow keys to grid axes relative to where the camera is looking, so
+// "left" on screen is left in the scene no matter the orbit angle.
+function nudgeDelta(key) {
+  if (key === 'PageUp') return new THREE.Vector3(0, 1, 0);
+  if (key === 'PageDown') return new THREE.Vector3(0, -1, 0);
+  if (!key.startsWith('Arrow')) return null;
+  const fwd = new THREE.Vector3();
+  camera.getWorldDirection(fwd);
+  fwd.y = 0;
+  if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
+  const f = Math.abs(fwd.x) > Math.abs(fwd.z)
+    ? new THREE.Vector3(Math.sign(fwd.x), 0, 0)
+    : new THREE.Vector3(0, 0, Math.sign(fwd.z));
+  const right = new THREE.Vector3().crossVectors(f, new THREE.Vector3(0, 1, 0));
+  if (key === 'ArrowUp') return f;
+  if (key === 'ArrowDown') return f.negate();
+  if (key === 'ArrowRight') return right;
+  if (key === 'ArrowLeft') return right.negate();
+  return null;
 }
 
 function onResize() {
-  const wrap = document.getElementById('canvas-wrap');
-  camera.aspect = wrap.clientWidth / wrap.clientHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+  applyRenderSize();
 }
 
 function animate() {
   requestAnimationFrame(animate);
+  updateTweens();
   orbit.update();
   renderer.render(scene, camera);
 }
 
+// ──── Tiny tween engine (ease-out cubic) for drops, reverts and camera moves ────
+
+function addTween({ dur, update, done }) {
+  const tw = { t0: performance.now(), dur, update, done, dead: false };
+  tweens.push(tw);
+  return tw;
+}
+
+function killTween(tw) { if (tw) tw.dead = true; }
+
+function updateTweens() {
+  if (!tweens.length) return;
+  const now = performance.now();
+  for (const tw of tweens) {
+    if (tw.dead) continue;
+    const k = Math.min(1, (now - tw.t0) / tw.dur);
+    const e = 1 - Math.pow(1 - k, 3);
+    tw.update(e);
+    if (k >= 1) {
+      tw.dead = true;
+      if (tw.done) tw.done();
+    }
+  }
+  tweens = tweens.filter(t => !t.dead);
+}
+
+function setItemPos(r, pos) {
+  r.mesh.position.copy(pos);
+  r.edge.position.copy(pos);
+}
+
+function tweenItemTo(r, target, dur, done) {
+  const from = r.mesh.position.clone();
+  const to = target.clone();
+  const tmp = new THREE.Vector3();
+  return addTween({
+    dur,
+    update: e => setItemPos(r, tmp.lerpVectors(from, to, e)),
+    done,
+  });
+}
+
+function smoothCamTo(pos, target, dur = 450) {
+  killTween(camTween);
+  const p0 = camera.position.clone(), t0 = orbit.target.clone();
+  const p1 = pos.clone(), t1 = target.clone();
+  camTween = addTween({
+    dur,
+    update: e => {
+      camera.position.lerpVectors(p0, p1, e);
+      orbit.target.lerpVectors(t0, t1, e);
+    },
+  });
+}
+
 function clearScene() {
   for (const r of itemMeshes) {
+    killTween(r.__tween);
+    scene.remove(r.mesh);
+    if (r.edge) scene.remove(r.edge);
+  }
+  for (const r of blockerMeshes) {
     scene.remove(r.mesh);
     if (r.edge) scene.remove(r.edge);
   }
@@ -233,14 +506,17 @@ function clearScene() {
   for (const m of gridHelpers) scene.remove(m);
   if (workspaceFloor) { scene.remove(workspaceFloor); workspaceFloor = null; }
   if (stagingZone) { scene.remove(stagingZone); stagingZone = null; }
-  itemMeshes = []; gridMeshes = []; gridHelpers = [];
-  selectedMesh = null;
-  originalMaterial = null;
+  if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; ghostKey = ''; }
+  itemMeshes = []; blockerMeshes = []; gridMeshes = []; gridHelpers = [];
+  tweens = [];
+  dragState = null;
+  selectedRec = null;
+  hoverRec = null;
   document.getElementById('info').style.display = 'none';
 }
 
 function priorityColor(p) {
-  return PRIORITY_COLORS[p] || 0xcccccc;
+  return PAL.priorities[p - 1] || '#cccccc';
 }
 
 window.loadPacking = function(data) {
@@ -256,7 +532,7 @@ window.loadPacking = function(data) {
   let cursor = 0; let totalW = 0;
   for (const g of grids) {
     gridOrigins.push(cursor);
-    cursor += g[0][0] + GRID_GAP;
+    cursor += gridDims(g)[0] + GRID_GAP;
     totalW = cursor;
   }
   const shift = -(totalW - GRID_GAP) / 2;
@@ -266,13 +542,13 @@ window.loadPacking = function(data) {
   grids.forEach((g, i) => {
     gridOrigins[i] += shift;
     lastGridOrigins[i] = gridOrigins[i];
-    gridNameToIdx[g[1]] = i;
+    gridNameToIdx[gridName(g)] = i;
   });
 
   let maxH = 0;
   let maxL = 0;
   grids.forEach((g, i) => {
-    const [w, l, h] = g[0];
+    const [w, l, h] = gridDims(g);
     maxH = Math.max(maxH, h);
     maxL = Math.max(maxL, l);
     const ox = gridOrigins[i];
@@ -281,29 +557,43 @@ window.loadPacking = function(data) {
     // Wireframe box
     const geo = new THREE.BoxGeometry(w, h, l);
     const edges = new THREE.EdgesGeometry(geo);
-    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x6e7681 }));
+    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: PAL.wire }));
     line.position.set(ox + w/2, h/2, l/2);
+    line.userData.role = 'wire';
     scene.add(line); gridMeshes.push(line);
 
     // Floor tint (slightly highlighted to show valid drop zone)
     const floorGeo = new THREE.PlaneGeometry(w, l);
-    const floorMat = new THREE.MeshBasicMaterial({ color: 0x1e2a36, side: THREE.DoubleSide,
+    const floorMat = new THREE.MeshBasicMaterial({ color: PAL.floor, side: THREE.DoubleSide,
                                                    transparent: true, opacity: 0.85 });
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(ox + w/2, 0.001, l/2);
+    floor.userData.role = 'floor';
     scene.add(floor); gridMeshes.push(floor);
 
     // 1-unit grid overlay (initially hidden)
-    const overlay = new THREE.GridHelper(Math.max(w, l), Math.max(w, l), 0x30363d, 0x21262d);
+    const overlay = new THREE.GridHelper(Math.max(w, l), Math.max(w, l));
+    overlay.material.vertexColors = false;
+    overlay.material.color.set(PAL.helper);
     overlay.position.set(ox + w/2, 0.005, l/2);
     overlay.visible = document.getElementById('gridToggle').checked;
     scene.add(overlay); gridHelpers.push(overlay);
 
     // Label
-    const sprite = makeTextSprite(g[1], 0xe6edf3);
+    const sprite = makeTextSprite(gridName(g), 'label');
     sprite.position.set(ox + w/2, h + 1.0, l/2);
     scene.add(sprite); gridMeshes.push(sprite);
+
+    for (const blocker of gridBlocked(g)) {
+      const [bx, by, bz] = blockerPosition(blocker);
+      const [bw, bl, bh] = blockerDims(blocker);
+      addBlockerMesh({
+        dims: [bw, bl, bh],
+        supports: blockerSupports(blocker),
+        position: new THREE.Vector3(ox + bx + bw/2, bz + bh/2, by + bl/2),
+      });
+    }
   });
   lastGridCenters = gridCenterByIdx;
 
@@ -311,7 +601,7 @@ window.loadPacking = function(data) {
   const wsW = Math.max(totalW, 16) + 30;
   const wsL = Math.max(maxL, 12) + 12;
   const wsGeo = new THREE.PlaneGeometry(wsW, wsL);
-  const wsMat = new THREE.MeshBasicMaterial({ color: 0x161b22, side: THREE.DoubleSide,
+  const wsMat = new THREE.MeshBasicMaterial({ color: PAL.ws, side: THREE.DoubleSide,
                                               transparent: true, opacity: 0.5 });
   workspaceFloor = new THREE.Mesh(wsGeo, wsMat);
   workspaceFloor.rotation.x = -Math.PI / 2;
@@ -325,7 +615,7 @@ window.loadPacking = function(data) {
   const stagingX = (totalW > 0 ? totalW + shift + STAGING_GAP : 4);
   const stagingZ = Math.max(0, maxL / 2 - STAGE_L / 2);
   const stagingGeo = new THREE.PlaneGeometry(STAGE_W, STAGE_L);
-  const stagingMat = new THREE.MeshBasicMaterial({ color: 0x3a1a02, side: THREE.DoubleSide,
+  const stagingMat = new THREE.MeshBasicMaterial({ color: PAL.staging, side: THREE.DoubleSide,
                                                    transparent: true, opacity: 0.45 });
   stagingZone = new THREE.Mesh(stagingGeo, stagingMat);
   stagingZone.rotation.x = -Math.PI / 2;
@@ -334,9 +624,9 @@ window.loadPacking = function(data) {
 
   // Staging label
   if (unplaced.length > 0) {
-    const stagingLabel = makeTextSprite(`Unplaced (${unplaced.length}) — drag to place`, 0xd29922);
+    const stagingLabel = makeTextSprite(`Unplaced (${unplaced.length}) — drag to place`, 'staging');
     stagingLabel.scale.set(8, 1.2, 1);
-    stagingLabel.position.set(stagingX + STAGE_W / 2, 0.5, stagingZ - 1.0);
+    stagingLabel.position.set(stagingX + STAGE_W / 2, 0.6, stagingZ + STAGE_L + 1.2);
     scene.add(stagingLabel);
     gridMeshes.push(stagingLabel);
   }
@@ -349,7 +639,7 @@ window.loadPacking = function(data) {
     const ox = lastGridOrigins[gidx] || 0;
     const basePos = new THREE.Vector3(ox + px + dw/2, pz + dh/2, py + dl/2);
     addItemMesh({
-      dims: [dw, dl, dh], color: priorityColor(p.priority),
+      dims: [dw, dl, dh],
       position: basePos, gridCenter: gridCenterByIdx[gidx].clone(),
       info: {
         scu: p.scu_type, priority: p.priority, dims: p.dimensions,
@@ -405,7 +695,7 @@ window.loadPacking = function(data) {
       stagingZ + best.y + l_dim/2,
     );
     addItemMesh({
-      dims: [w_dim, l_dim, h_dim], color: priorityColor(u.priority),
+      dims: [w_dim, l_dim, h_dim],
       position: basePos, gridCenter: basePos.clone(),
       info: {
         scu: u.scu_type, priority: u.priority, dims: [w_dim, l_dim, h_dim],
@@ -414,8 +704,6 @@ window.loadPacking = function(data) {
       unplaced: true,
     });
   }
-
-  // (custom pointer drag handles arbitrary itemMeshes)
 
   // HUD
   const m = data.metrics || {};
@@ -430,12 +718,8 @@ window.loadPacking = function(data) {
 
   // Legend
   const used = new Set([...placements.map(p => p.priority), ...unplaced.map(u => u.priority)]);
-  const sortedP = [...used].sort();
-  const lines = sortedP.map(p =>
-    `<div><span class="sw" style="background:#${priorityColor(p).toString(16).padStart(6,'0')}"></span>Priority ${p}</div>`
-  );
-  document.getElementById('legend').innerHTML = lines.length
-    ? `<div class="title">Priority</div>${lines.join('')}` : '';
+  lastPriorities = [...used].sort();
+  renderLegend();
 
   // Frame camera around workspace
   const span = Math.max(totalW + STAGE_W + STAGING_GAP, maxH * 4, 14);
@@ -445,6 +729,14 @@ window.loadPacking = function(data) {
   applyExplode();
 };
 
+function renderLegend() {
+  const lines = lastPriorities.map(p =>
+    `<div><span class="sw" style="background:${priorityColor(p)}"></span>Priority ${p}</div>`
+  );
+  document.getElementById('legend').innerHTML = lines.length
+    ? `<div class="title">Priority</div>${lines.join('')}` : '';
+}
+
 function scuDimsFromType(scu) {
   const map = {
     "1 SCU": [1, 1, 1], "2 SCU": [2, 1, 1], "4 SCU": [2, 2, 1],
@@ -453,20 +745,16 @@ function scuDimsFromType(scu) {
   return map[scu];
 }
 
-function addItemMesh({ dims, color, position, gridCenter, info, unplaced }) {
+function addItemMesh({ dims, position, gridCenter, info, unplaced }) {
   const [dw, dl, dh] = dims;
   const geom = new THREE.BoxGeometry(dw, dh, dl);
-  const mat = new THREE.MeshStandardMaterial({
-    color, transparent: true, opacity: unplaced ? 0.55 : 0.78,
-    roughness: 0.55, metalness: 0.12,
-  });
-  const mesh = new THREE.Mesh(geom, mat);
+  const mesh = new THREE.Mesh(geom, new THREE.MeshStandardMaterial());
   mesh.position.copy(position);
   scene.add(mesh);
 
   const edgeGeo = new THREE.EdgesGeometry(geom);
   const edgeMat = new THREE.LineBasicMaterial({
-    color: unplaced ? 0xd29922 : 0x000000,
+    color: unplaced ? PAL.css.warn : PAL.edgeIn,
     opacity: unplaced ? 0.95 : 0.5,
     transparent: true,
     linewidth: unplaced ? 2 : 1,
@@ -476,37 +764,230 @@ function addItemMesh({ dims, color, position, gridCenter, info, unplaced }) {
   scene.add(edge);
 
   const record = {
-    mesh, edge, base: position.clone(), gridCenter,
-    originalPos: position.clone(), info, unplaced, dims,
+    mesh, edge, mats: [], base: position.clone(), gridCenter,
+    originalPos: position.clone(), info, unplaced,
+    dims, geomDims: [...dims],  // geomDims never changes; dims swaps on rotation
   };
   mesh.userData = record;
   itemMeshes.push(record);
+  rebuildItemMaterials(record);
+  updateItemVisual(record);
+}
+
+// ──── Item materials per style: plain shaded box, or per-SCU-unit "voxel" faces ────
+
+function addBlockerMesh({ dims, position, supports }) {
+  const [dw, dl, dh] = dims;
+  const geom = new THREE.BoxGeometry(dw, dh, dl);
+  const mat = new THREE.MeshStandardMaterial({
+    color: PAL.wire,
+    transparent: true,
+    opacity: supports ? 0.38 : 0.26,
+    roughness: 0.8,
+    metalness: 0.0,
+  });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.copy(position);
+  scene.add(mesh);
+
+  const edge = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geom),
+    new THREE.LineBasicMaterial({
+      color: supports ? PAL.wire : PAL.css.bad,
+      opacity: 0.9,
+      transparent: true,
+    }),
+  );
+  edge.position.copy(position);
+  scene.add(edge);
+
+  blockerMeshes.push({ mesh, edge, dims, blocker: true, supports });
+}
+
+const unitTexCache = new Map();
+
+// Grayscale texture drawing u×v raised "pixel blocks" (beveled unit cells).
+// Material color multiplies it, so one cached texture serves every priority.
+function unitTex(u, v) {
+  u = Math.max(1, Math.round(u)); v = Math.max(1, Math.round(v));
+  const key = u + 'x' + v;
+  if (unitTexCache.has(key)) return unitTexCache.get(key);
+  const px = 24;
+  const c = document.createElement('canvas');
+  c.width = u * px; c.height = v * px;
+  const g = c.getContext('2d');
+  for (let i = 0; i < u; i++) {
+    for (let j = 0; j < v; j++) {
+      const x = i * px, y = j * px;
+      g.fillStyle = '#d6d6d6'; g.fillRect(x, y, px, px);
+      g.fillStyle = '#ffffff'; g.fillRect(x + 2, y + 2, px - 4, 4);
+      g.fillRect(x + 2, y + 2, 4, px - 4);
+      g.fillStyle = '#8f8f8f'; g.fillRect(x + 2, y + px - 6, px - 4, 4);
+      g.fillRect(x + px - 6, y + 2, 4, px - 4);
+      g.fillStyle = 'rgba(0,0,0,0.85)';
+      g.fillRect(x, y, px, 2); g.fillRect(x, y, 2, px);
+      g.fillRect(x, y + px - 2, px, 2); g.fillRect(x + px - 2, y, 2, px);
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  if ('colorSpace' in t) t.colorSpace = THREE.SRGBColorSpace;
+  unitTexCache.set(key, t);
+  return t;
+}
+
+function rebuildItemMaterials(r) {
+  const color = priorityColor(r.info.priority);
+  const old = Array.isArray(r.mesh.material) ? r.mesh.material : [r.mesh.material];
+  let mats;
+  if (STYLE.pixel) {
+    // BoxGeometry(w, h, l) face order: ±x (l×h), ±y (w×l), ±z (w×h)
+    const [gw, gl, gh] = r.geomDims;
+    const fx = unitTex(gl, gh), fy = unitTex(gw, gl), fz = unitTex(gw, gh);
+    mats = [fx, fx, fy, fy, fz, fz].map(t => new THREE.MeshStandardMaterial({
+      color, map: t, transparent: true, roughness: 0.9, metalness: 0.0,
+    }));
+    r.mesh.material = mats;
+  } else {
+    mats = [new THREE.MeshStandardMaterial({
+      color, transparent: true, roughness: 0.55, metalness: 0.12,
+    })];
+    r.mesh.material = mats[0];
+  }
+  r.mats = mats;
+  for (const m of old) if (m && !mats.includes(m)) m.dispose();
+}
+
+// Single place that decides an item's emissive highlight + opacity from its
+// interaction state (dragging / colliding / selected / hovered).
+function updateItemVisual(r) {
+  const dragging = dragState && dragState.record === r;
+  const colliding = dragging && dragState.colliding;
+  const transparentOn = document.getElementById('transparentToggle').checked;
+  const solid = dragging || selectedRec === r;
+  const baseOp = r.unplaced ? 0.55 : 0.78;
+  for (const mat of r.mats) {
+    if (colliding) {
+      mat.emissive.set(PAL.css.bad); mat.emissiveIntensity = 0.6;
+    } else if (dragging) {
+      mat.emissive.set(PAL.css.accent); mat.emissiveIntensity = 0.45;
+    } else if (selectedRec === r) {
+      mat.emissive.set(PAL.css.accent); mat.emissiveIntensity = 0.5;
+    } else if (hoverRec === r) {
+      mat.emissive.set(PAL.css.accent); mat.emissiveIntensity = 0.18;
+    } else {
+      mat.emissive.set('#000000'); mat.emissiveIntensity = 0;
+    }
+    mat.opacity = (solid || !transparentOn) ? 1.0 : baseOp;
+    mat.transparent = !solid && transparentOn;
+  }
+}
+
+// ──── Theme switching ─────────────────────────────────────────────────────────
+
+function applyTheme() {
+  STYLE = STYLES[styleKey];
+  PAL = PALETTES[paletteKey];
+
+  const rootStyle = document.documentElement.style;
+  for (const [k, v] of Object.entries(PAL.css)) rootStyle.setProperty('--' + k, v);
+  document.body.classList.toggle('retro', !!STYLE.pixel);
+
+  if (!scene) return;
+  scene.background = new THREE.Color(PAL.bg3d);
+  ambLight.intensity = STYLE.amb;
+  keyLight.intensity = STYLE.key;
+  fillLight.intensity = STYLE.fill;
+  applyRenderSize();
+
+  if (workspaceFloor) workspaceFloor.material.color.set(PAL.ws);
+  if (stagingZone) stagingZone.material.color.set(PAL.staging);
+  for (const m of gridMeshes) {
+    const role = m.userData && m.userData.role;
+    if (role === 'wire') m.material.color.set(PAL.wire);
+    else if (role === 'floor') m.material.color.set(PAL.floor);
+    else if (m.isSprite) drawTextSprite(m);
+  }
+  for (const g of gridHelpers) {
+    g.material.vertexColors = false;
+    g.material.color.set(PAL.helper);
+    g.material.needsUpdate = true;
+  }
+  for (const r of itemMeshes) {
+    rebuildItemMaterials(r);
+    updateItemVisual(r);
+    updateValidity(r);
+  }
+  if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; ghostKey = ''; }
+  renderLegend();
+
+  try {
+    localStorage.setItem('cargoViewerStyle', styleKey);
+    localStorage.setItem('cargoViewerPalette', paletteKey);
+  } catch (e) { /* storage unavailable */ }
+}
+
+window.setViewerStyle = function(key) {
+  if (!STYLES[key]) return;
+  styleKey = key;
+  applyTheme();
+};
+
+window.setViewerPalette = function(key) {
+  if (!PALETTES[key]) return;
+  paletteKey = key;
+  applyTheme();
+};
+
+window.setTheme = function(style, palette) {
+  if (STYLES[style]) styleKey = style;
+  if (PALETTES[palette]) paletteKey = palette;
+  const ss = document.getElementById('styleSelect');
+  const ps = document.getElementById('paletteSelect');
+  if (ss) ss.value = styleKey;
+  if (ps) ps.value = paletteKey;
+  applyTheme();
+};
+
+function populateThemeSelectors() {
+  const ss = document.getElementById('styleSelect');
+  const ps = document.getElementById('paletteSelect');
+  ss.innerHTML = Object.entries(STYLES)
+    .map(([k, s]) => `<option value="${k}">${s.label}</option>`).join('');
+  ps.innerHTML = Object.entries(PALETTES)
+    .map(([k, p]) => `<option value="${k}">${p.label}</option>`).join('');
+  ss.value = styleKey;
+  ps.value = paletteKey;
 }
 
 window.resetView = function() {
-  camera.position.copy(defaultCam.pos);
-  orbit.target.copy(defaultCam.target);
-  orbit.update();
+  smoothCamTo(defaultCam.pos, defaultCam.target);
 };
 
 window.resetPositions = function() {
+  if (!itemMeshes.length) return;
   for (const r of itemMeshes) {
+    killTween(r.__tween);
+    r.__tween = null;
     r.base.copy(r.originalPos);
-    r.mesh.position.copy(r.originalPos);
-    r.edge.position.copy(r.originalPos);
   }
-  applyExplode();
+  const starts = itemMeshes.map(r => r.mesh.position.clone());
+  const targets = itemMeshes.map(r => explodedPos(r));
+  const tmp = new THREE.Vector3();
+  addTween({
+    dur: 400,
+    update: e => itemMeshes.forEach((r, i) => setItemPos(r, tmp.lerpVectors(starts[i], targets[i], e))),
+    done: () => {
+      for (const r of itemMeshes) updateValidity(r);
+      if (selectedRec) showInfo(selectedRec);
+    },
+  });
 };
 
 window.toggleTransparent = function() {
-  const on = document.getElementById('transparentToggle').checked;
-  for (const r of itemMeshes) {
-    if (r.mesh.material && r.mesh.material.type === 'MeshStandardMaterial') {
-      const baseOp = r.unplaced ? 0.55 : 0.78;
-      r.mesh.material.opacity = on ? baseOp : 1.0;
-      r.mesh.material.transparent = on;
-    }
-  }
+  for (const r of itemMeshes) updateItemVisual(r);
 };
 
 window.toggleGrid = function() {
@@ -546,13 +1027,27 @@ window.setExplode = function(v) {
   applyExplode();
 };
 
+function explodedPos(r) {
+  const dir = new THREE.Vector3().subVectors(r.base, r.gridCenter);
+  return r.base.clone().addScaledVector(dir, explodeFactor * 0.7);
+}
+
 function applyExplode() {
   for (const r of itemMeshes) {
-    const dir = new THREE.Vector3().subVectors(r.base, r.gridCenter);
-    const offset = dir.clone().multiplyScalar(explodeFactor * 0.7);
-    const pos = new THREE.Vector3().addVectors(r.base, offset);
-    r.mesh.position.copy(pos);
-    r.edge.position.copy(pos);
+    if (r.__tween && !r.__tween.dead) continue;  // don't fight an in-flight drop animation
+    if (dragState && dragState.record === r) continue;
+    setItemPos(r, explodedPos(r));
+  }
+}
+
+// Store the logical (un-exploded) position for the item's current visual spot,
+// inverting the explode offset: pos = base + (base - center)·f  ⇒  base = (pos + center·f)/(1+f)
+function setBaseFromCurrent(r) {
+  const f = explodeFactor * 0.7;
+  if (f > 0) {
+    r.base.copy(r.mesh.position).addScaledVector(r.gridCenter, f).divideScalar(1 + f);
+  } else {
+    r.base.copy(r.mesh.position);
   }
 }
 
@@ -596,6 +1091,7 @@ function intersectPlaneFromEvent(event, plane) {
 }
 
 function onPointerDown(event) {
+  clickStart = { x: event.clientX, y: event.clientY };
   if (event.button !== 0) return;
   if (!dragEnabled()) return;
   const hit = pickItem(event);
@@ -605,6 +1101,8 @@ function onPointerDown(event) {
   event.stopImmediatePropagation();
 
   const r = hit.object.userData;
+  killTween(r.__tween);
+  r.__tween = null;
   const mode = event.shiftKey ? 'vertical' : 'horizontal';
   const plane = makeDragPlane(r.mesh.position, mode);
   const planeHit = intersectPlaneFromEvent(event, plane);
@@ -618,34 +1116,51 @@ function onPointerDown(event) {
     lastValid: r.mesh.position.clone(),
     offset: new THREE.Vector3().subVectors(planeHit, r.mesh.position),
     hasMoved: false,
+    colliding: false,
   };
-  // Highlight
-  r.__matBackup = r.mesh.material;
-  const hl = r.__matBackup.clone();
-  hl.emissive = new THREE.Color(0x58a6ff);
-  hl.emissiveIntensity = 0.45;
-  hl.opacity = 1.0;
-  hl.transparent = false;
-  r.mesh.material = hl;
+  updateItemVisual(r);
   renderer.domElement.style.cursor = 'grabbing';
   showTip(mode === 'vertical'
     ? 'Free lift · release <kbd>Shift</kbd> to drop and auto-stack again'
-    : 'Drag · auto-stacks onto boxes underneath · hold <kbd>Shift</kbd> for free lift');
+    : 'Drag · <kbd>R</kbd> rotates · hold <kbd>Shift</kbd> for free lift');
   event.preventDefault();
+}
+
+// Highest surface (floor = 0, or top of any box) under the given XZ footprint.
+function supportTopAt(r, x, z) {
+  const [dw, dl] = r.dims;
+  const ix1 = x - dw/2, ix2 = x + dw/2;
+  const iz1 = z - dl/2, iz2 = z + dl/2;
+  let top = 0;
+  for (const other of [...itemMeshes, ...blockerMeshes]) {
+    if (other === r) continue;
+    if (other.blocker && !other.supports) continue;
+    const [ow, ol, oh] = other.dims;
+    const ox1 = other.mesh.position.x - ow/2, ox2 = other.mesh.position.x + ow/2;
+    const oz1 = other.mesh.position.z - ol/2, oz2 = other.mesh.position.z + ol/2;
+    const xOv = Math.min(ix2, ox2) - Math.max(ix1, ox1);
+    const zOv = Math.min(iz2, oz2) - Math.max(iz1, oz1);
+    if (xOv > 0.001 && zOv > 0.001) {
+      const otherTop = other.mesh.position.y + oh/2;
+      if (otherTop > top) top = otherTop;
+    }
+  }
+  return top;
 }
 
 function onPointerDrag(event) {
   if (!dragState) return;
+  const r = dragState.record;
   // Live shift-key check: allow toggling between modes mid-drag.
   const wantsVertical = event.shiftKey;
   if (wantsVertical !== (dragState.mode === 'vertical')) {
     dragState.mode = wantsVertical ? 'vertical' : 'horizontal';
-    dragState.plane = makeDragPlane(dragState.record.mesh.position, dragState.mode);
+    dragState.plane = makeDragPlane(r.mesh.position, dragState.mode);
     const ph = intersectPlaneFromEvent(event, dragState.plane);
-    if (ph) dragState.offset.copy(ph).sub(dragState.record.mesh.position);
+    if (ph) dragState.offset.copy(ph).sub(r.mesh.position);
     showTip(dragState.mode === 'vertical'
       ? 'Free lift · release <kbd>Shift</kbd> to drop and auto-stack again'
-      : 'Drag · auto-stacks onto boxes underneath · hold <kbd>Shift</kbd> for free lift');
+      : 'Drag · <kbd>R</kbd> rotates · hold <kbd>Shift</kbd> for free lift');
   }
   const planeHit = intersectPlaneFromEvent(event, dragState.plane);
   if (!planeHit) return;
@@ -655,120 +1170,142 @@ function onPointerDrag(event) {
     // Auto-stack: Y always sits on the highest overlapping surface (floor or box top)
     // at the new (X, Z). Drag the box across a pile and it walks up; over empty floor
     // it drops back to ground level.
-    const [dw, dl, dh] = dragState.record.dims;
-    const ix1 = newPos.x - dw/2, ix2 = newPos.x + dw/2;
-    const iz1 = newPos.z - dl/2, iz2 = newPos.z + dl/2;
-    let supportTop = 0;
-    for (const other of itemMeshes) {
-      if (other === dragState.record) continue;
-      const [ow, ol, oh] = other.dims;
-      const ox1 = other.mesh.position.x - ow/2, ox2 = other.mesh.position.x + ow/2;
-      const oz1 = other.mesh.position.z - ol/2, oz2 = other.mesh.position.z + ol/2;
-      const xOv = Math.min(ix2, ox2) - Math.max(ix1, ox1);
-      const zOv = Math.min(iz2, oz2) - Math.max(iz1, oz1);
-      if (xOv > 0.001 && zOv > 0.001) {
-        const otherTop = other.mesh.position.y + oh/2;
-        if (otherTop > supportTop) supportTop = otherTop;
-      }
-    }
-    newPos.y = supportTop + dh/2;
+    newPos.y = supportTopAt(r, newPos.x, newPos.z) + r.dims[2] / 2;
   } else {
     newPos.x = dragState.startPos.x;
     newPos.z = dragState.startPos.z;
-    newPos.y = Math.max(dragState.record.dims[2] / 2, newPos.y);
+    newPos.y = Math.max(r.dims[2] / 2, newPos.y);
   }
-  dragState.record.mesh.position.copy(newPos);
-  dragState.record.edge.position.copy(newPos);
+  setItemPos(r, newPos);
   dragState.hasMoved = dragState.hasMoved || newPos.distanceTo(dragState.startPos) > 0.05;
 
-  const colliding = isColliding(dragState.record);
-  setCollisionTint(dragState.record, colliding);
-  if (!colliding) dragState.lastValid.copy(newPos);
+  dragState.colliding = collidesAt(r, newPos);
+  updateItemVisual(r);
+  if (!dragState.colliding) dragState.lastValid.copy(newPos);
+  updateDropPreview(r);
+}
+
+// Ghost outline showing exactly where the box will land on release.
+function updateDropPreview(r) {
+  if (!dragState || !snapEnabled()) { hideGhost(); return; }
+  const free = findFreeSnapPosition(r, r.mesh.position);
+  const target = free || computeSnappedPosition(r, r.mesh.position);
+  showGhost(r, target, !!free);
+}
+
+function ensureGhost(dims) {
+  const key = dims.join('x');
+  if (ghostGroup && ghostKey === key) return;
+  if (ghostGroup) scene.remove(ghostGroup);
+  const [dw, dl, dh] = dims;
+  const geom = new THREE.BoxGeometry(dw, dh, dl);
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geom),
+    new THREE.LineBasicMaterial({ color: PAL.css.good, transparent: true, opacity: 0.9 }),
+  );
+  const foot = new THREE.Mesh(
+    new THREE.PlaneGeometry(dw, dl),
+    new THREE.MeshBasicMaterial({ color: PAL.css.good, transparent: true, opacity: 0.22,
+                                  side: THREE.DoubleSide, depthWrite: false }),
+  );
+  foot.rotation.x = -Math.PI / 2;
+  foot.position.y = -dh / 2 + 0.01;
+  ghostGroup = new THREE.Group();
+  ghostGroup.add(edges);
+  ghostGroup.add(foot);
+  ghostGroup.userData = { edges, foot };
+  scene.add(ghostGroup);
+  ghostKey = key;
+}
+
+function showGhost(r, pos, valid) {
+  ensureGhost(r.dims);
+  ghostGroup.visible = true;
+  ghostGroup.position.copy(pos);
+  const c = valid ? PAL.css.good : PAL.css.bad;
+  ghostGroup.userData.edges.material.color.set(c);
+  ghostGroup.userData.foot.material.color.set(c);
+}
+
+function hideGhost() {
+  if (ghostGroup) ghostGroup.visible = false;
 }
 
 function onPointerHover(event) {
   if (dragState) return;
-  if (!dragEnabled()) return;
   const hit = pickItem(event);
-  renderer.domElement.style.cursor = hit ? 'grab' : 'default';
+  const r = hit ? hit.object.userData : null;
+  if (r !== hoverRec) {
+    const prev = hoverRec;
+    hoverRec = r;
+    if (prev) updateItemVisual(prev);
+    if (r) updateItemVisual(r);
+  }
+  renderer.domElement.style.cursor = r ? (dragEnabled() ? 'grab' : 'pointer') : 'default';
 }
 
-function onPointerUp(event) {
+function onPointerUp() {
   if (!dragState) return;
   const r = dragState.record;
-  const colliding = isColliding(r);
-  if (colliding) {
-    // Revert to last valid position (or start)
-    const target = dragState.lastValid;
-    r.mesh.position.copy(target);
-    r.edge.position.copy(target);
-  } else if (dragState.hasMoved && snapEnabled()) {
-    snapToIntegers(r.mesh);
-    // After snap, recheck collision; if it now collides, revert
-    if (isColliding(r)) {
-      r.mesh.position.copy(dragState.lastValid);
-      r.edge.position.copy(dragState.lastValid);
-    } else {
-      r.edge.position.copy(r.mesh.position);
+  const moved = dragState.hasMoved;
+
+  // Decide the landing spot: snapped nearest-free cell, or the raw spot if snap
+  // is off and it's clear, or glide back to the last valid position.
+  let target = null;
+  if (moved) {
+    if (snapEnabled()) {
+      target = findFreeSnapPosition(r, r.mesh.position) || dragState.lastValid.clone();
+    } else if (collidesAt(r, r.mesh.position)) {
+      target = dragState.lastValid.clone();
     }
   }
-  // Restore material + edge color
-  if (r.__matBackup) {
-    r.mesh.material = r.__matBackup;
-    delete r.__matBackup;
-  }
-  setCollisionTint(r, false);
-  r.base.copy(r.mesh.position);
-  updateValidity(r);
 
+  dragState = null;
+  hideGhost();
+  updateItemVisual(r);
   orbit.enabled = true;
   renderer.domElement.style.cursor = 'default';
   hideTip();
-  // If it didn't actually move, treat it as a click for selection
-  if (!dragState.hasMoved) selectItem(r.mesh);
-  dragState = null;
+
+  if (!moved) {
+    // Treat as a click: select for inspection
+    selectItem(r);
+    return;
+  }
+
+  const finish = () => {
+    setBaseFromCurrent(r);
+    updateValidity(r);
+  };
+  selectItem(r);
+  if (target && target.distanceToSquared(r.mesh.position) > 1e-6) {
+    r.__tween = tweenItemTo(r, target, 160, finish);
+  } else {
+    finish();
+  }
 }
 
-function isColliding(r) {
-  const m = r.mesh;
-  const [dw, dl, dh] = r.dims;
-  const ix1 = m.position.x - dw/2, ix2 = m.position.x + dw/2;
-  const iy1 = m.position.y - dh/2, iy2 = m.position.y + dh/2;
-  const iz1 = m.position.z - dl/2, iz2 = m.position.z + dl/2;
-  const eps = 0.001;
-  for (const other of itemMeshes) {
+function boxesOverlap(pa, da, pb, db, eps = 0.001) {
+  return pa.x + da[0]/2 - eps > pb.x - db[0]/2 && pb.x + db[0]/2 - eps > pa.x - da[0]/2 &&
+         pa.y + da[2]/2 - eps > pb.y - db[2]/2 && pb.y + db[2]/2 - eps > pa.y - da[2]/2 &&
+         pa.z + da[1]/2 - eps > pb.z - db[1]/2 && pb.z + db[1]/2 - eps > pa.z - da[1]/2;
+}
+
+function collidesAt(r, pos) {
+  for (const other of [...itemMeshes, ...blockerMeshes]) {
     if (other === r) continue;
-    const om = other.mesh;
-    const [ow, ol, oh] = other.dims;
-    const ox1 = om.position.x - ow/2, ox2 = om.position.x + ow/2;
-    const oy1 = om.position.y - oh/2, oy2 = om.position.y + oh/2;
-    const oz1 = om.position.z - ol/2, oz2 = om.position.z + ol/2;
-    if (ix2 - eps > ox1 && ox2 - eps > ix1 &&
-        iy2 - eps > oy1 && oy2 - eps > iy1 &&
-        iz2 - eps > oz1 && oz2 - eps > iz1) {
-      return true;
-    }
+    if (boxesOverlap(pos, r.dims, other.mesh.position, other.dims)) return true;
   }
   return false;
 }
 
-function setCollisionTint(r, colliding) {
-  if (!r.mesh.material || r.mesh.material.type !== 'MeshStandardMaterial') return;
-  if (colliding) {
-    r.mesh.material.emissive = new THREE.Color(0xf85149);
-    r.mesh.material.emissiveIntensity = 0.6;
-  } else if (dragState && dragState.record === r) {
-    r.mesh.material.emissive = new THREE.Color(0x58a6ff);
-    r.mesh.material.emissiveIntensity = 0.45;
-  } else {
-    r.mesh.material.emissive = new THREE.Color(0x000000);
-    r.mesh.material.emissiveIntensity = 0;
-  }
+function isColliding(r) {
+  return collidesAt(r, r.mesh.position);
 }
 
 function rotateItem(r) {
   // Z-axis rotation (around vertical) swaps the X/Y footprint — matches the env's
-  // training-time rotation constraint (height locked). Reverts on collision.
+  // training-time rotation constraint (height locked).
   if (!r) return false;
   const [dw, dl, dh] = r.dims;
   if (dw === dl) return false;  // square footprint — visual no-op
@@ -776,174 +1313,172 @@ function rotateItem(r) {
   r.mesh.rotation.y += Math.PI / 2;
   r.edge.rotation.y += Math.PI / 2;
 
+  if (dragState && dragState.record === r) {
+    // Mid-drag: rotate freely — the drop logic resolves any overlap on release.
+    if (dragState.mode === 'horizontal') {
+      const p = r.mesh.position.clone();
+      p.y = supportTopAt(r, p.x, p.z) + dh / 2;
+      setItemPos(r, p);
+    }
+    dragState.colliding = collidesAt(r, r.mesh.position);
+    updateItemVisual(r);
+    updateDropPreview(r);
+    r.info.dims = [...r.dims];
+    return true;
+  }
+
   if (isColliding(r)) {
     r.mesh.rotation.y -= Math.PI / 2;
     r.edge.rotation.y -= Math.PI / 2;
     r.dims = [dw, dl, dh];
+    showTip('No room to rotate here', 1400);
     return false;
   }
 
-  r.base.copy(r.mesh.position);
-  r.info.dims = [r.dims[0], r.dims[1], r.dims[2]];
+  r.info.dims = [...r.dims];
   updateValidity(r);
   return true;
 }
 
-function selectItem(mesh) {
-  if (selectedMesh && originalMaterial) selectedMesh.material = originalMaterial;
-  selectedMesh = mesh;
-  originalMaterial = mesh.material;
-  const hl = originalMaterial.clone();
-  hl.emissive = new THREE.Color(0x58a6ff);
-  hl.emissiveIntensity = 0.5;
-  hl.opacity = 1.0;
-  hl.transparent = false;
-  mesh.material = hl;
-  showInfo(mesh.userData);
+function selectItem(r) {
+  const prev = selectedRec;
+  selectedRec = r;
+  if (prev && prev !== r) updateItemVisual(prev);
+  if (r) {
+    updateItemVisual(r);
+    showInfo(r);
+  } else {
+    document.getElementById('info').style.display = 'none';
+  }
 }
 
-function snapToIntegers(mesh) {
-  // 1) Snap X/Z to integer cells, clamping inside the grid the item is over.
-  // 2) Gravity-snap Y to whichever surface (floor or top of overlapping box) it lands on.
-  const r = mesh.userData;
-  const [dw, dl, dh] = r.dims;
-  const cx = mesh.position.x, cz = mesh.position.z;
-
-  // Find candidate grid by mesh center
-  let gidx = -1;
+// Which grid (index) covers the given XZ point, or -1 for open workspace.
+function gridIndexAt(x, z) {
   for (const [i, ox] of Object.entries(lastGridOrigins)) {
-    const dims = lastGrids[i] && lastGrids[i][0];
+    const dims = lastGrids[i] && gridDims(lastGrids[i]);
     if (!dims) continue;
-    const [gw, gl, gh] = dims;
-    if (cx >= ox && cx <= ox + gw && cz >= 0 && cz <= gl) { gidx = parseInt(i); break; }
+    const [gw, gl] = dims;
+    if (x >= ox && x <= ox + gw && z >= 0 && z <= gl) return parseInt(i);
   }
+  return -1;
+}
 
-  // Step 1: integer X/Z
+// Pure version of the drop snap: integer X/Z (clamped inside the grid under the
+// point), then gravity-snap Y to the supporting surface — unless the user
+// deliberately lifted the box high, in which case honor the lift at integer Y.
+function computeSnappedPosition(r, pos) {
+  const [dw, dl, dh] = r.dims;
+  const gidx = gridIndexAt(pos.x, pos.z);
+
+  let x, z;
   if (gidx === -1) {
-    // Outside any grid: free workspace integer snap
-    const gx = Math.round(mesh.position.x - dw/2);
-    const gz = Math.round(mesh.position.z - dl/2);
-    mesh.position.x = gx + dw/2;
-    mesh.position.z = gz + dl/2;
+    x = Math.round(pos.x - dw/2) + dw/2;
+    z = Math.round(pos.z - dl/2) + dl/2;
   } else {
     const ox = lastGridOrigins[gidx];
-    const [gw, gl] = lastGrids[gidx][0];
-    let lx = Math.round(mesh.position.x - ox - dw/2);
-    let ly = Math.round(mesh.position.z - dl/2);
+    const [gw, gl] = gridDims(lastGrids[gidx]);
+    let lx = Math.round(pos.x - ox - dw/2);
+    let ly = Math.round(pos.z - dl/2);
     lx = Math.max(0, Math.min(gw - dw, lx));
     ly = Math.max(0, Math.min(gl - dl, ly));
-    mesh.position.x = ox + lx + dw/2;
-    mesh.position.z = ly + dl/2;
+    x = ox + lx + dw/2;
+    z = ly + dl/2;
   }
 
-  // Step 2: gravity-snap Y. Find supporting surface = max top of any item
-  // whose XZ footprint overlaps ours. Floor (Y=0) is always a candidate.
-  const ix1 = mesh.position.x - dw/2, ix2 = mesh.position.x + dw/2;
-  const iz1 = mesh.position.z - dl/2, iz2 = mesh.position.z + dl/2;
-  let supportTop = 0;
-  for (const other of itemMeshes) {
-    if (other.mesh === mesh) continue;
-    const [ow, ol, oh] = other.dims;
-    const ox1 = other.mesh.position.x - ow/2, ox2 = other.mesh.position.x + ow/2;
-    const oz1 = other.mesh.position.z - ol/2, oz2 = other.mesh.position.z + ol/2;
-    const xOv = Math.min(ix2, ox2) - Math.max(ix1, ox1);
-    const zOv = Math.min(iz2, oz2) - Math.max(iz1, oz1);
-    if (xOv > 0.001 && zOv > 0.001) {
-      const otherTop = other.mesh.position.y + oh/2;
-      if (otherTop > supportTop) supportTop = otherTop;
-    }
-  }
-
-  // If user explicitly lifted the box high above the support, respect it (snap to integer Y).
-  // Otherwise, gravity-snap to support surface.
-  const myBottom = mesh.position.y - dh/2;
-  const liftedAbove = myBottom - supportTop;
-  if (liftedAbove > 1.5) {
+  const supportTop = supportTopAt(r, x, z);
+  const myBottom = pos.y - dh/2;
+  let bottom;
+  if (myBottom - supportTop > 1.5) {
     // Honor manual lift: integer-snap Y, not below support
-    let lz = Math.max(supportTop, Math.round(myBottom));
-    // Clamp to grid height if inside a grid
-    if (gidx !== -1) {
-      const gh = lastGrids[gidx][0][2];
-      lz = Math.min(lz, gh - dh);
-    }
-    mesh.position.y = lz + dh/2;
+    bottom = Math.max(supportTop, Math.round(myBottom));
   } else {
-    // Snap to support surface (floor or top of stack)
-    let lz = supportTop;
-    if (gidx !== -1) {
-      const gh = lastGrids[gidx][0][2];
-      lz = Math.min(lz, gh - dh);
-    }
-    mesh.position.y = lz + dh/2;
+    bottom = supportTop;
   }
+  if (gidx !== -1) {
+    bottom = Math.min(bottom, gridDims(lastGrids[gidx])[2] - dh);
+  }
+  return new THREE.Vector3(x, bottom + dh/2, z);
+}
+
+// Snap, and if the snapped cell is occupied, search nearby cells (spiralling
+// out to radius 2) for the closest free one. Returns null if everything nearby
+// is blocked.
+function findFreeSnapPosition(r, pos) {
+  const offsets = [[0, 0]];
+  for (let rad = 1; rad <= 2; rad++)
+    for (let dx = -rad; dx <= rad; dx++)
+      for (let dz = -rad; dz <= rad; dz++)
+        if (Math.max(Math.abs(dx), Math.abs(dz)) === rad) offsets.push([dx, dz]);
+  offsets.sort((a, b) => (a[0]*a[0] + a[1]*a[1]) - (b[0]*b[0] + b[1]*b[1]));
+  const seen = new Set();
+  const probe = new THREE.Vector3();
+  for (const [dx, dz] of offsets) {
+    probe.set(pos.x + dx, pos.y, pos.z + dz);
+    const cand = computeSnappedPosition(r, probe);
+    const key = `${cand.x.toFixed(2)},${cand.y.toFixed(2)},${cand.z.toFixed(2)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (!collidesAt(r, cand)) return cand;
+  }
+  return null;
 }
 
 function updateValidity(r) {
-  // Determine if mesh is fully inside any grid bounding box
-  const m = r.mesh;
+  // Determine if the item's logical position is fully inside any grid box.
   const [dw, dl, dh] = r.dims;
-  const x1 = m.position.x - dw/2;
-  const x2 = m.position.x + dw/2;
-  const z1 = m.position.z - dl/2;
-  const z2 = m.position.z + dl/2;
-  const y1 = m.position.y - dh/2;
-  const y2 = m.position.y + dh/2;
+  const p = r.base;
+  const x1 = p.x - dw/2, x2 = p.x + dw/2;
+  const z1 = p.z - dl/2, z2 = p.z + dl/2;
+  const y1 = p.y - dh/2, y2 = p.y + dh/2;
   let inside = false;
   let insideName = null;
+  let insideOx = 0;
   for (const [i, ox] of Object.entries(lastGridOrigins)) {
-    const dims = lastGrids[i] && lastGrids[i][0];
+    const dims = lastGrids[i] && gridDims(lastGrids[i]);
     if (!dims) continue;
     const [gw, gl, gh] = dims;
     if (x1 >= ox - 0.001 && x2 <= ox + gw + 0.001 &&
         z1 >= -0.001 && z2 <= gl + 0.001 &&
         y1 >= -0.001 && y2 <= gh + 0.001) {
       inside = true;
-      insideName = lastGrids[i][1];
+      insideName = gridName(lastGrids[i]);
+      insideOx = ox;
       break;
     }
   }
-  // Visual: outside-grid items get an orange edge
+  // Visual: outside-grid items get a warn-colored edge
   if (r.edge) {
-    r.edge.material.color.set(inside ? 0x000000 : 0xd29922);
+    r.edge.material.color.set(inside ? PAL.edgeIn : PAL.css.warn);
     r.edge.material.opacity = inside ? 0.5 : 0.95;
   }
   r.info.grid = insideName || (r.unplaced ? 'Unplaced' : 'Outside');
-  r.info.position = [Math.round(m.position.x - (insideName ? lastGridOrigins[Object.entries(lastGridOrigins).find(([_,ox]) => true)[0]] : 0)),
-                     Math.round(m.position.z),
-                     Math.round(m.position.y - 0.5)];
+  r.info.position = [
+    Math.round(x1 - (inside ? insideOx : 0)),
+    Math.round(z1),
+    Math.round(y1),
+  ];
   // If currently selected, refresh info panel
-  if (selectedMesh === r.mesh) showInfo(r);
+  if (selectedRec === r) showInfo(r);
 }
 
 function onCanvasClick(event) {
-  const rect = renderer.domElement.getBoundingClientRect();
-  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-  raycaster.setFromCamera(mouse, camera);
-  const meshes = itemMeshes.map(r => r.mesh);
-  const hits = raycaster.intersectObjects(meshes, false);
-
-  if (selectedMesh && originalMaterial) {
-    selectedMesh.material = originalMaterial;
+  // Only treat as a click if the pointer barely moved — otherwise this is the
+  // tail end of an orbit or box drag and selection must not change.
+  if (clickStart) {
+    const d = Math.hypot(event.clientX - clickStart.x, event.clientY - clickStart.y);
+    if (d > 6) return;
   }
-  if (hits.length === 0) {
-    selectedMesh = null;
-    originalMaterial = null;
-    document.getElementById('info').style.display = 'none';
-    return;
-  }
+  const hit = pickItem(event);
+  selectItem(hit ? hit.object.userData : null);
+}
 
-  const target = hits[0].object;
-  selectedMesh = target;
-  originalMaterial = target.material;
-  const hl = originalMaterial.clone();
-  hl.emissive = new THREE.Color(0x58a6ff);
-  hl.emissiveIntensity = 0.5;
-  hl.opacity = 1.0;
-  hl.transparent = false;
-  target.material = hl;
-
-  showInfo(target.userData);
+function onDblClick(event) {
+  const hit = pickItem(event);
+  if (!hit) return;
+  // Glide the orbit pivot onto the box, keeping the current viewing offset.
+  const center = hit.object.position.clone();
+  const camPos = camera.position.clone().sub(orbit.target).add(center);
+  smoothCamTo(camPos, center);
 }
 
 function showInfo(r) {
@@ -951,8 +1486,8 @@ function showInfo(r) {
   const dims = info.dims;
   const pos = info.position;
   let badge = '<span class="badge placed">Placed</span>';
-  if (r.unplaced) badge = '<span class="badge unplaced">Unplaced</span>';
-  if (info.grid === 'Outside') badge = '<span class="badge outside">Outside Grid</span>';
+  if (info.grid === 'Unplaced') badge = '<span class="badge unplaced">Unplaced</span>';
+  else if (info.grid === 'Outside') badge = '<span class="badge outside">Outside Grid</span>';
   const square = (dims[0] === dims[1]);
   document.getElementById('info').innerHTML = `
     <div class="ttl">${info.scu}${badge}</div>
@@ -969,23 +1504,59 @@ function showInfo(r) {
   if (btn && !square) btn.onclick = () => rotateItem(r);
 }
 
-function makeTextSprite(text, color) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512; canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
-  ctx.font = 'bold 56px "Segoe UI", sans-serif';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
-  const tex = new THREE.CanvasTexture(canvas);
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
-  const sprite = new THREE.Sprite(mat);
+function makeTextSprite(text, role) {
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true }));
+  sprite.userData.text = text;
+  sprite.userData.role = role;
+  drawTextSprite(sprite);
   sprite.scale.set(6, 1.5, 1);
   return sprite;
 }
 
+function drawTextSprite(sprite) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512; canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = sprite.userData.role === 'staging' ? PAL.css.warn : PAL.css.fg;
+  const family = STYLE.pixel ? 'Consolas, "Courier New", monospace' : '"Segoe UI", sans-serif';
+  let size = STYLE.pixel ? 52 : 56;
+  const text = STYLE.pixel ? sprite.userData.text.toUpperCase() : sprite.userData.text;
+  ctx.font = `bold ${size}px ${family}`;
+  const w = ctx.measureText(text).width;
+  if (w > canvas.width - 16) {
+    size = Math.floor(size * (canvas.width - 16) / w);
+    ctx.font = `bold ${size}px ${family}`;
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+  const tex = new THREE.CanvasTexture(canvas);
+  if (STYLE.pixel) tex.magFilter = THREE.NearestFilter;
+  if (sprite.material.map) sprite.material.map.dispose();
+  sprite.material.map = tex;
+  sprite.material.needsUpdate = true;
+}
+
+// Read-only introspection hooks so automated tests can find boxes on screen.
+window.__viewerDebug = {
+  itemCount: () => itemMeshes.length,
+  itemPos: (i) => itemMeshes[i] ? itemMeshes[i].mesh.position.toArray() : null,
+  itemDims: (i) => itemMeshes[i] ? [...itemMeshes[i].dims] : null,
+  itemInfo: (i) => itemMeshes[i] ? JSON.parse(JSON.stringify(itemMeshes[i].info)) : null,
+  screenXY: (i) => {
+    const r = itemMeshes[i];
+    if (!r) return null;
+    const v = r.mesh.position.clone().project(camera);
+    const rect = renderer.domElement.getBoundingClientRect();
+    return [rect.left + (v.x + 1) / 2 * rect.width, rect.top + (1 - v.y) / 2 * rect.height];
+  },
+  selectedIndex: () => itemMeshes.indexOf(selectedRec),
+  theme: () => ({ style: styleKey, palette: paletteKey }),
+};
+
 try {
   init();
+  populateThemeSelectors();
+  applyTheme();
   window.__rendererReady = true;
   document.getElementById('hud').textContent = 'Ready · awaiting packing result';
   // First-launch nudge: show a brief tip about camera + help.

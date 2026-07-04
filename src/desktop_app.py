@@ -47,6 +47,7 @@ sys.path.insert(0, str(_resource_root() / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from scu_manifest_generator import SCU_DEFINITIONS
+from packing_core.grid_utils import grid_usable_volume, serialize_grid
 
 RESOURCE_ROOT = _resource_root()
 SHIPS_FILE = RESOURCE_ROOT / "ships_cargo_grids.json"
@@ -570,14 +571,17 @@ class MainWindow(QMainWindow):
             self.grid_info.setText("")
             return
         grids = ship.get("grids", [])
-        total_vol = sum(g["dimensions"][0] * g["dimensions"][1] * g["dimensions"][2] for g in grids)
+        total_vol = sum(grid_usable_volume(g) for g in grids)
         parts = [f"<b style='color:#e6edf3'>{len(grids)}</b> grid(s) · "
-                 f"<b style='color:#58a6ff'>{total_vol}</b> SCU capacity"]
+                 f"<b style='color:#58a6ff'>{total_vol:g}</b> usable SCU"]
         for g in grids:
             d = g["dimensions"]
-            vol = d[0] * d[1] * d[2]
+            bounding_vol = d[0] * d[1] * d[2]
+            usable_vol = grid_usable_volume(g)
+            blocked_vol = bounding_vol - usable_vol
+            blocked_note = f", {blocked_vol:g} blocked" if blocked_vol > 0 else ""
             parts.append(f"&nbsp;&nbsp;<span style='color:#8b949e'>{g['name']}:</span> "
-                         f"{d[0]}×{d[1]}×{d[2]} ({vol} SCU)")
+                         f"{d[0]}×{d[1]}×{d[2]} ({usable_vol:g} usable{blocked_note})")
         self.grid_info.setText("<br>".join(parts))
         self._update_capacity_label()
         self.setWindowTitle(f"Star Citizen Cargo Optimizer v{APP_VERSION} — {ship['name']}")
@@ -586,8 +590,7 @@ class MainWindow(QMainWindow):
         ship = self._selected_ship()
         if not ship:
             return 0
-        return sum(g["dimensions"][0] * g["dimensions"][1] * g["dimensions"][2]
-                   for g in ship.get("grids", []))
+        return sum(grid_usable_volume(g) for g in ship.get("grids", []))
 
     def _update_capacity_label(self):
         cap = self._ship_capacity()
@@ -598,7 +601,7 @@ class MainWindow(QMainWindow):
         else:
             ratio = total / cap
             pct = ratio * 100
-            self.capacity_label.setText(f"Total: {total} / {cap} SCU ({pct:.0f}%)")
+            self.capacity_label.setText(f"Total: {total} / {cap:g} SCU ({pct:.0f}%)")
             if total > cap:
                 self.capacity_label.setObjectName("capacity_full")
             elif ratio > 0.85:
@@ -717,7 +720,7 @@ class MainWindow(QMainWindow):
         if not manifest:
             QMessageBox.warning(self, "No Cargo", "Add at least one cargo row.")
             return
-        ship_grids = [[list(g["dimensions"]), g["name"]] for g in ship["grids"]]
+        ship_grids = [serialize_grid(g) for g in ship["grids"]]
 
         self.optimize_btn.setEnabled(False)
         self._set_status("loading", "Optimizing…")
