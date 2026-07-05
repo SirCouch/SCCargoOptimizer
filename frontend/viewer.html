@@ -637,9 +637,9 @@ window.loadPacking = function(data) {
     overlay.visible = document.getElementById('gridToggle').checked;
     scene.add(overlay); gridHelpers.push(overlay);
 
-    // Label
+    // Floor label, placed just outside the grid it names.
     const sprite = makeTextSprite(gridName(g), 'label');
-    sprite.position.set(o.x + w/2, o.y + h + 1.0, o.z + l/2);
+    sprite.position.copy(areaLabelPosition(o.x, o.y, o.z, w, l));
     scene.add(sprite); gridMeshes.push(sprite);
 
     for (const blocker of gridBlocked(g)) {
@@ -681,9 +681,8 @@ window.loadPacking = function(data) {
 
   // Staging label
   if (unplaced.length > 0) {
-    const stagingLabel = makeTextSprite(`Unplaced (${unplaced.length}) — drag to place`, 'staging');
-    stagingLabel.scale.set(8, 1.2, 1);
-    stagingLabel.position.set(stagingX + STAGE_W / 2, 0.6, stagingZ + STAGE_L + 1.2);
+    const stagingLabel = makeTextSprite(`Unplaced (${unplaced.length})`, 'staging');
+    stagingLabel.position.copy(areaLabelPosition(stagingX, 0, stagingZ, STAGE_W, STAGE_L));
     scene.add(stagingLabel);
     gridMeshes.push(stagingLabel);
   }
@@ -1038,7 +1037,7 @@ function applyTheme() {
     const role = m.userData && m.userData.role;
     if (role === 'wire') m.material.color.set(PAL.wire);
     else if (role === 'floor') m.material.color.set(PAL.floor);
-    else if (m.isSprite) drawTextSprite(m);
+    else if (role === 'label' || role === 'staging') drawTextSprite(m);
   }
   for (const g of gridHelpers) {
     g.material.vertexColors = false;
@@ -1261,24 +1260,27 @@ function onPointerDown(event) {
   event.preventDefault();
 }
 
-// Highest surface (floor = 0, or top of any box) under the given XZ footprint.
+// Highest surface under the given XZ footprint. Elevated blockers can be
+// shelves, but only when there is not enough clear space to place the cargo
+// beneath them on the current support.
 function supportTopAt(r, x, z) {
-  const [dw, dl] = r.dims;
+  const [dw, dl, dh] = r.dims;
   const ix1 = x - dw/2, ix2 = x + dw/2;
   const iz1 = z - dl/2, iz2 = z + dl/2;
-  let top = 0;
-  for (const other of [...itemMeshes, ...blockerMeshes]) {
-    if (other === r) continue;
-    if (other.blocker && !other.supports) continue;
-    const [ow, ol, oh] = other.dims;
+  const footprintOverlaps = (other) => {
+    const [ow, ol] = other.dims;
     const ox1 = other.mesh.position.x - ow/2, ox2 = other.mesh.position.x + ow/2;
     const oz1 = other.mesh.position.z - ol/2, oz2 = other.mesh.position.z + ol/2;
     const xOv = Math.min(ix2, ox2) - Math.max(ix1, ox1);
     const zOv = Math.min(iz2, oz2) - Math.max(iz1, oz1);
-    if (xOv > 0.001 && zOv > 0.001) {
-      const otherTop = other.mesh.position.y + oh/2;
-      if (otherTop > top) top = otherTop;
-    }
+    return xOv > 0.001 && zOv > 0.001;
+  };
+  let top = 0;
+  for (const other of itemMeshes) {
+    if (other === r) continue;
+    if (!footprintOverlaps(other)) continue;
+    const otherTop = other.mesh.position.y + other.dims[2]/2;
+    if (otherTop > top) top = otherTop;
   }
   // Elevated grids (from a saved ship layout) act as shelves: their floor is
   // a support surface anywhere the footprint overlaps them.
@@ -1289,6 +1291,13 @@ function supportTopAt(r, x, z) {
     const xOv = Math.min(ix2, o.x + dims[0]) - Math.max(ix1, o.x);
     const zOv = Math.min(iz2, o.z + dims[1]) - Math.max(iz1, o.z);
     if (xOv > 0.001 && zOv > 0.001) top = o.y;
+  }
+  for (const other of blockerMeshes) {
+    if (!other.supports || !footprintOverlaps(other)) continue;
+    const otherBottom = other.mesh.position.y - other.dims[2]/2;
+    const otherTop = other.mesh.position.y + other.dims[2]/2;
+    if (otherBottom - top >= dh - 0.001) continue;
+    if (otherTop > top) top = otherTop;
   }
   return top;
 }
@@ -1650,36 +1659,54 @@ function showInfo(r) {
   if (btn && !square) btn.onclick = () => rotateItem(r);
 }
 
-function makeTextSprite(text, role) {
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true }));
-  sprite.userData.text = text;
-  sprite.userData.role = role;
-  drawTextSprite(sprite);
-  sprite.scale.set(6, 1.5, 1);
-  return sprite;
+function areaLabelPosition(x, y, z, w, l) {
+  const sideOffset = 0.8;
+  return new THREE.Vector3(x + w / 2, y + 0.035, z - sideOffset);
 }
 
-function drawTextSprite(sprite) {
+function makeTextSprite(text, role) {
+  const label = new THREE.Mesh(
+    new THREE.PlaneGeometry(5.2, 1.3),
+    new THREE.MeshBasicMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    }),
+  );
+  label.rotation.x = -Math.PI / 2;
+  label.userData.text = text;
+  label.userData.role = role;
+  drawTextSprite(label);
+  label.renderOrder = 20;
+  return label;
+}
+
+function drawTextSprite(label) {
   const canvas = document.createElement('canvas');
   canvas.width = 512; canvas.height = 128;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = sprite.userData.role === 'staging' ? PAL.css.warn : PAL.css.fg;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   const family = STYLE.pixel ? 'Consolas, "Courier New", monospace' : '"Segoe UI", sans-serif';
-  let size = STYLE.pixel ? 52 : 56;
-  const text = STYLE.pixel ? sprite.userData.text.toUpperCase() : sprite.userData.text;
+  let size = STYLE.pixel ? 50 : 52;
+  const text = STYLE.pixel ? label.userData.text.toUpperCase() : label.userData.text;
   ctx.font = `bold ${size}px ${family}`;
+  const maxTextWidth = canvas.width - 36;
   const w = ctx.measureText(text).width;
-  if (w > canvas.width - 16) {
-    size = Math.floor(size * (canvas.width - 16) / w);
+  if (w > maxTextWidth) {
+    size = Math.floor(size * maxTextWidth / w);
     ctx.font = `bold ${size}px ${family}`;
   }
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = label.userData.role === 'staging' ? PAL.css.warn : PAL.css.fg;
   ctx.fillText(text, canvas.width / 2, canvas.height / 2);
   const tex = new THREE.CanvasTexture(canvas);
   if (STYLE.pixel) tex.magFilter = THREE.NearestFilter;
-  if (sprite.material.map) sprite.material.map.dispose();
-  sprite.material.map = tex;
-  sprite.material.needsUpdate = true;
+  if (label.material.map) label.material.map.dispose();
+  label.material.map = tex;
+  label.material.needsUpdate = true;
 }
 
 // Read-only introspection hooks so automated tests can find boxes on screen.

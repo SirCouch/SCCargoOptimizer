@@ -1,5 +1,23 @@
 # Changes
 
+## v0.1.5 - 2026-07-05
+
+### New
+- **Fresh specialist checkpoints.** Updated the small, medium, and large GNN model
+  weights. The loader now prefers `checkpoints/` when present and falls back to the
+  root-level model files for older source trees and bundles.
+- **Release packaging alignment.** PyInstaller now bundles `checkpoints/` when the
+  folder exists, keeping local release builds on the same model files that the app
+  uses in development.
+
+### Fixed
+- **Viewer floor labels.** Grid and staging labels now sit on the floor just outside
+  their areas instead of floating above the cargo space, and palette changes redraw
+  label textures correctly.
+- **Shelf support behavior.** Elevated supporting blockers now act as shelves only
+  when the item cannot fit below them, avoiding unnecessary vertical snapping.
+- **890 Jump grid dimensions.** Corrected the main cargo grid width from 8 to 6 SCU.
+
 ## v0.1.4 - 2026-07-04
 
 ### New

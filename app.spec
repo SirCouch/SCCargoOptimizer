@@ -52,6 +52,16 @@ opt_d = sum((x[0] for x in optional_collected), [])
 opt_b = sum((x[1] for x in optional_collected), [])
 opt_h = sum((x[2] for x in optional_collected), [])
 
+model_datas = (
+    [("checkpoints", "checkpoints")]
+    if os.path.isdir("checkpoints")
+    else [
+        ("small_gnn_model.pt", "."),
+        ("medium_gnn_model.pt", "."),
+        ("large_gnn_model.pt", "."),
+    ]
+)
+
 a = Analysis(
     ["src/desktop_app.py"],
     pathex=["src"],
@@ -59,10 +69,7 @@ a = Analysis(
     datas=[
         ("frontend", "frontend"),
         ("ships_cargo_grids.json", "."),
-        ("small_gnn_model.pt", "."),
-        ("medium_gnn_model.pt", "."),
-        ("large_gnn_model.pt", "."),
-    ] + torch_d + tg_d + pyside_d + shiboken_d + opt_d,
+    ] + model_datas + torch_d + tg_d + pyside_d + shiboken_d + opt_d,
     hiddenimports=[
         "scu_manifest_generator",
         "ensemble_inference",
