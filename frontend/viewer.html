@@ -123,7 +123,6 @@
   <div class="row"><span class="k">Use</span><span>Drag into a grid</span></div>
   <h4>Other</h4>
   <div class="row"><span class="k">Reset positions</span><span>Undoes all manual moves</span></div>
-  <div class="row"><span class="k">Explode</span><span>Spread items from grid centers</span></div>
   <div class="row"><span class="k">Outside grid</span><span>Orange edge = invalid spot for the model</span></div>
   <div class="row"><span class="k">Style / Palette</span><span>Bottom bar — 8-Bit mode, manufacturer colors</span></div>
 </div>
@@ -150,10 +149,7 @@
   <label title="When releasing a drag, snap to integer cells and gravity-snap to the nearest surface below"><input type="checkbox" id="snapToggle" checked> Snap</label>
   <label title="Allow click-and-drag to move boxes; turn off to use orbit camera anywhere"><input type="checkbox" id="dragToggle" checked> Drag</label>
   <span class="sep"></span>
-  <label title="Make boxes semi-transparent so you can see items inside grids"><input type="checkbox" id="transparentToggle" checked onchange="toggleTransparent()"> Transparent</label>
   <label title="Show 1-unit floor grid lines for spatial reference"><input type="checkbox" id="gridToggle" onchange="toggleGrid()"> Grid lines</label>
-  <span class="sep"></span>
-  <label title="Spread items outward from each grid's center for inspection">Explode <input type="range" id="explodeSlider" min="0" max="100" value="0" oninput="setExplode(this.value)"></label>
   <span class="sep"></span>
   <label title="Rendering style">Style <select id="styleSelect" onchange="setViewerStyle(this.value)"></select></label>
   <label title="Color palette inspired by ship manufacturers' in-game UI">Palette <select id="paletteSelect" onchange="setViewerPalette(this.value)"></select></label>
@@ -312,7 +308,6 @@ let raycaster;
 let selectedRec = null;  // currently selected item record
 let hoverRec = null;     // item record under the cursor
 let defaultCam = { pos: new THREE.Vector3(20, 20, 25), target: new THREE.Vector3(0, 0, 0) };
-let explodeFactor = 0;
 let lastGrids = [];          // [[dims, name], ...]
 let lastGridOrigins = {};    // grid_idx -> x offset
 let lastGridCenters = {};    // grid_idx -> Vector3
@@ -852,7 +847,7 @@ window.loadPacking = function(data) {
   defaultCam.pos.set(cx + span * 0.4, span * 0.7, cz + span * 0.9);
   defaultCam.target.set(cx, maxTop / 2, cz);
   resetView();
-  applyExplode();
+  applyItemPositions();
 };
 
 function renderLegend() {
@@ -1019,6 +1014,36 @@ function restyleBlocker(b) {
 }
 
 const faceTexCache = new Map();
+const modernTexCache = new Map();
+
+function hexToRgb(hex) {
+  const raw = String(hex || '#cccccc').replace('#', '');
+  const safe = /^[0-9a-fA-F]{6}$/.test(raw) ? raw : 'cccccc';
+  return {
+    r: parseInt(safe.slice(0, 2), 16),
+    g: parseInt(safe.slice(2, 4), 16),
+    b: parseInt(safe.slice(4, 6), 16),
+  };
+}
+
+function rgbToHex({ r, g, b }) {
+  const c = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+  return `#${c(r)}${c(g)}${c(b)}`;
+}
+
+function mixHex(hexA, hexB, t) {
+  const a = hexToRgb(hexA), b = hexToRgb(hexB);
+  return rgbToHex({
+    r: a.r + (b.r - a.r) * t,
+    g: a.g + (b.g - a.g) * t,
+    b: a.b + (b.b - a.b) * t,
+  });
+}
+
+function textOnHex(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#101214' : '#f5f0dc';
+}
 
 function scuVolumeFromInfo(info, dims) {
   const m = String((info && info.scu) || '').match(/^(\d+)/);
@@ -1138,6 +1163,178 @@ function faceTex(u, v, volume) {
   return t;
 }
 
+function drawModernSizeMark(g, w, h, volume, ink) {
+  const cx = w * 0.5;
+  const cy = h * 0.56;
+  const size = Math.max(7, Math.round(Math.min(w, h) * 0.12));
+  const gap = Math.max(4, Math.round(size * 0.42));
+  g.fillStyle = ink;
+  const rect = (x, y, rw = size, rh = size) => g.fillRect(Math.round(x), Math.round(y), Math.round(rw), Math.round(rh));
+  switch (volume) {
+    case 1:
+      rect(cx - size / 2, cy - size / 2);
+      break;
+    case 2:
+      rect(cx - size - gap / 2, cy - size / 2);
+      rect(cx + gap / 2, cy - size / 2);
+      break;
+    case 4:
+      rect(cx - size - gap / 2, cy - size - gap / 2);
+      rect(cx + gap / 2, cy - size - gap / 2);
+      rect(cx - size - gap / 2, cy + gap / 2);
+      rect(cx + gap / 2, cy + gap / 2);
+      break;
+    case 8:
+      rect(cx - size / 2, cy - size * 1.8, size, size * 3.6);
+      rect(cx - size * 1.8, cy - size / 2, size * 3.6, size);
+      break;
+    case 16:
+      rect(cx - size * 2.2, cy - size * 0.95, size * 4.4, size * 0.75);
+      rect(cx - size * 2.2, cy + size * 0.3, size * 4.4, size * 0.75);
+      break;
+    case 24:
+      rect(cx - size * 1.65, cy - size * 1.55, size * 0.7, size * 3.1);
+      rect(cx - size * 0.35, cy - size * 1.55, size * 0.7, size * 3.1);
+      rect(cx + size * 0.95, cy - size * 1.55, size * 0.7, size * 3.1);
+      break;
+    case 32:
+      g.lineWidth = Math.max(5, Math.round(size * 0.55));
+      g.strokeStyle = ink;
+      g.beginPath();
+      g.moveTo(cx - size * 2, cy - size * 1.4);
+      g.lineTo(cx + size * 2, cy + size * 1.4);
+      g.moveTo(cx + size * 2, cy - size * 1.4);
+      g.lineTo(cx - size * 2, cy + size * 1.4);
+      g.stroke();
+      break;
+    default:
+      rect(cx - size * 1.5, cy - size * 1.5, size * 3, size * 3);
+      break;
+  }
+}
+
+function drawDevGrid(g, w, h, step, majorEvery, minorColor, majorColor) {
+  g.lineWidth = 1;
+  for (let x = 0; x <= w; x += step) {
+    g.strokeStyle = Math.round(x / step) % majorEvery === 0 ? majorColor : minorColor;
+    g.beginPath();
+    g.moveTo(Math.round(x) + 0.5, 0);
+    g.lineTo(Math.round(x) + 0.5, h);
+    g.stroke();
+  }
+  for (let y = 0; y <= h; y += step) {
+    g.strokeStyle = Math.round(y / step) % majorEvery === 0 ? majorColor : minorColor;
+    g.beginPath();
+    g.moveTo(0, Math.round(y) + 0.5);
+    g.lineTo(w, Math.round(y) + 0.5);
+    g.stroke();
+  }
+}
+
+function drawDevPanel(g, w, h, volume, priorityHex, faceKind) {
+  const orange = '#d87820';
+  const orangeDark = '#9d4d19';
+  const gray = '#777b72';
+  const grayDark = '#4e534f';
+  const black = '#151515';
+  const panelColor = faceKind === 'top'
+    ? mixHex(gray, priorityHex, 0.08)
+    : mixHex(orange, priorityHex, 0.08);
+  const panelDark = faceKind === 'top' ? grayDark : orangeDark;
+  const gridMinor = faceKind === 'top' ? 'rgba(245,245,220,0.22)' : 'rgba(255,241,190,0.28)';
+  const gridMajor = faceKind === 'top' ? 'rgba(20,20,20,0.72)' : 'rgba(20,20,20,0.82)';
+  const pad = Math.max(8, Math.round(Math.min(w, h) * 0.06));
+  const step = Math.max(12, Math.round(Math.min(w, h) / 8));
+
+  g.fillStyle = panelColor;
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = 'rgba(255,255,255,0.08)';
+  g.fillRect(0, 0, w, Math.max(4, Math.round(h * 0.06)));
+  g.fillStyle = 'rgba(0,0,0,0.16)';
+  g.fillRect(0, h - Math.max(5, Math.round(h * 0.08)), w, Math.max(5, Math.round(h * 0.08)));
+  drawDevGrid(g, w, h, step, 4, gridMinor, gridMajor);
+
+  g.strokeStyle = black;
+  g.lineWidth = Math.max(3, Math.round(Math.min(w, h) * 0.035));
+  g.strokeRect(pad, pad, w - pad * 2, h - pad * 2);
+  g.strokeStyle = 'rgba(255,255,255,0.38)';
+  g.lineWidth = 2;
+  g.strokeRect(pad + 5, pad + 5, w - pad * 2 - 10, h - pad * 2 - 10);
+
+  const headerH = Math.max(24, Math.round(h * 0.18));
+  g.fillStyle = black;
+  g.fillRect(pad, pad, w - pad * 2, headerH);
+  g.fillStyle = '#f1ead7';
+  g.textAlign = 'left';
+  g.textBaseline = 'middle';
+  g.font = `900 ${Math.max(14, Math.floor(headerH * 0.58))}px "Arial Narrow", "Segoe UI", sans-serif`;
+  g.fillText('DEV', pad + Math.round(headerH * 0.28), pad + headerH * 0.52);
+
+  const sizeLabel = `${volume} SCU`;
+  g.textAlign = 'right';
+  g.font = `900 ${Math.max(13, Math.floor(headerH * 0.5))}px "Arial Narrow", "Segoe UI", sans-serif`;
+  g.fillText(sizeLabel, w - pad - Math.round(headerH * 0.25), pad + headerH * 0.52);
+
+  const centerW = Math.min(w - pad * 3, Math.max(62, Math.round(w * 0.58)));
+  const centerH = Math.max(32, Math.round(h * 0.28));
+  const centerX = Math.round((w - centerW) / 2);
+  const centerY = Math.round(h * 0.42);
+  g.fillStyle = '#f1ead7';
+  g.fillRect(centerX, centerY, centerW, centerH);
+  g.strokeStyle = black;
+  g.lineWidth = Math.max(2, Math.round(centerH * 0.08));
+  g.strokeRect(centerX, centerY, centerW, centerH);
+  g.fillStyle = black;
+  g.textAlign = 'center';
+  const bigSize = Math.max(18, Math.floor(Math.min(centerH * 0.62, centerW / Math.max(3.5, sizeLabel.length * 0.58))));
+  g.font = `900 ${bigSize}px "Arial Narrow", "Segoe UI", sans-serif`;
+  g.fillText(sizeLabel, centerX + centerW / 2, centerY + centerH * 0.45);
+  g.font = `800 ${Math.max(8, Math.floor(bigSize * 0.36))}px "Arial Narrow", "Segoe UI", sans-serif`;
+  g.fillText(faceKind === 'top' ? 'UNIT FLOOR' : 'MEASURE WALL', centerX + centerW / 2, centerY + centerH * 0.78);
+
+  const stripH = Math.max(10, Math.round(h * 0.08));
+  g.fillStyle = priorityHex;
+  g.fillRect(pad, h - pad - stripH, w - pad * 2, stripH);
+  g.fillStyle = textOnHex(priorityHex);
+  g.font = `900 ${Math.max(8, Math.floor(stripH * 0.58))}px "Arial Narrow", "Segoe UI", sans-serif`;
+  g.fillText('PRIORITY STRIP', w / 2, h - pad - stripH * 0.48);
+
+  g.fillStyle = 'rgba(0,0,0,0.5)';
+  g.font = `800 ${Math.max(8, Math.floor(Math.min(w, h) * 0.075))}px "Arial Narrow", "Segoe UI", sans-serif`;
+  g.textAlign = 'left';
+  g.fillText(`${Math.round(w / step)} x ${Math.round(h / step)}`, pad, h - pad - stripH - Math.max(10, h * 0.035));
+
+  drawModernSizeMark(g, w, h, volume, faceKind === 'top' ? 'rgba(20,20,20,0.32)' : 'rgba(20,20,20,0.36)');
+
+  g.fillStyle = panelDark;
+  const corner = Math.max(9, Math.round(Math.min(w, h) * 0.07));
+  g.fillRect(0, 0, corner, corner);
+  g.fillRect(w - corner, 0, corner, corner);
+  g.fillRect(0, h - corner, corner, corner);
+  g.fillRect(w - corner, h - corner, corner, corner);
+}
+
+function modernFaceTex(u, v, volume, priorityHex, faceKind) {
+  u = Math.max(1, Math.round(u)); v = Math.max(1, Math.round(v));
+  volume = Math.max(1, Math.round(volume));
+  const color = String(priorityHex || '#cccccc').toUpperCase();
+  const key = `${u}x${v}:${volume}:${color}:${faceKind}`;
+  if (modernTexCache.has(key)) return modernTexCache.get(key);
+  const px = 54;
+  const c = document.createElement('canvas');
+  c.width = Math.max(96, u * px);
+  c.height = Math.max(96, v * px);
+  const g = c.getContext('2d');
+  drawDevPanel(g, c.width, c.height, volume, color, faceKind);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  if ('colorSpace' in t) t.colorSpace = THREE.SRGBColorSpace;
+  modernTexCache.set(key, t);
+  return t;
+}
+
 function rebuildItemMaterials(r) {
   const color = priorityColor(r.info.priority);
   const old = Array.isArray(r.mesh.material) ? r.mesh.material : [r.mesh.material];
@@ -1148,14 +1345,19 @@ function rebuildItemMaterials(r) {
     const volume = scuVolumeFromInfo(r.info, r.geomDims);
     const fx = faceTex(gl, gh, volume), fy = faceTex(gw, gl, volume), fz = faceTex(gw, gh, volume);
     mats = [fx, fx, fy, fy, fz, fz].map(t => new THREE.MeshStandardMaterial({
-      color, map: t, transparent: true, roughness: 0.9, metalness: 0.0,
+      color, map: t, transparent: false, roughness: 0.9, metalness: 0.0,
     }));
     r.mesh.material = mats;
   } else {
-    mats = [new THREE.MeshStandardMaterial({
-      color, transparent: true, roughness: 0.55, metalness: 0.12,
-    })];
-    r.mesh.material = mats[0];
+    const [gw, gl, gh] = r.geomDims;
+    const volume = scuVolumeFromInfo(r.info, r.geomDims);
+    const fx = modernFaceTex(gl, gh, volume, color, 'side');
+    const fy = modernFaceTex(gw, gl, volume, color, 'top');
+    const fz = modernFaceTex(gw, gh, volume, color, 'front');
+    mats = [fx, fx, fy, fy, fz, fz].map(t => new THREE.MeshStandardMaterial({
+      color: '#ffffff', map: t, transparent: false, roughness: 0.78, metalness: 0.08,
+    }));
+    r.mesh.material = mats;
   }
   r.mats = mats;
   for (const m of old) if (m && !mats.includes(m)) m.dispose();
@@ -1166,9 +1368,6 @@ function rebuildItemMaterials(r) {
 function updateItemVisual(r) {
   const dragging = dragState && dragState.record === r;
   const colliding = dragging && dragState.colliding;
-  const transparentOn = document.getElementById('transparentToggle').checked;
-  const solid = dragging || selectedRec === r;
-  const baseOp = r.unplaced ? 0.55 : 0.78;
   for (const mat of r.mats) {
     if (colliding) {
       mat.emissive.set(PAL.css.bad); mat.emissiveIntensity = 0.6;
@@ -1181,8 +1380,8 @@ function updateItemVisual(r) {
     } else {
       mat.emissive.set('#000000'); mat.emissiveIntensity = 0;
     }
-    mat.opacity = (solid || !transparentOn) ? 1.0 : baseOp;
-    mat.transparent = !solid && transparentOn;
+    mat.opacity = 1.0;
+    mat.transparent = false;
   }
 }
 
@@ -1308,7 +1507,7 @@ window.resetPositions = function() {
   for (const r of itemMeshes) {
     cancelItemTween(r);
     r.base.copy(r.originalPos);
-    const target = explodedPos(r);
+    const target = baseItemPos(r);
     r.__tween = tweenItemTo(r, target, 400, () => {
       r.__tween = null;
       updateValidity(r);
@@ -1316,10 +1515,6 @@ window.resetPositions = function() {
       if (remaining === 0 && selectedRec) showInfo(selectedRec);
     });
   }
-};
-
-window.toggleTransparent = function() {
-  for (const r of itemMeshes) updateItemVisual(r);
 };
 
 window.toggleGrid = function() {
@@ -1354,33 +1549,21 @@ function hideTip() {
 function dragEnabled() { return document.getElementById('dragToggle').checked; }
 function snapEnabled() { return document.getElementById('snapToggle').checked; }
 
-window.setExplode = function(v) {
-  explodeFactor = parseFloat(v) / 100.0;
-  applyExplode();
-};
-
-function explodedPos(r) {
-  const dir = new THREE.Vector3().subVectors(r.base, r.gridCenter);
-  return r.base.clone().addScaledVector(dir, explodeFactor * 0.7);
+function baseItemPos(r) {
+  return r.base.clone();
 }
 
-function applyExplode() {
+function applyItemPositions() {
   for (const r of itemMeshes) {
     if (r.__tween && !r.__tween.dead) continue;  // don't fight an in-flight drop animation
     if (dragState && dragState.record === r) continue;
-    setItemPos(r, explodedPos(r));
+    setItemPos(r, baseItemPos(r));
   }
 }
 
-// Store the logical (un-exploded) position for the item's current visual spot,
-// inverting the explode offset: pos = base + (base - center)·f  ⇒  base = (pos + center·f)/(1+f)
+// Store the logical position for the item's current visual spot.
 function setBaseFromCurrent(r) {
-  const f = explodeFactor * 0.7;
-  if (f > 0) {
-    r.base.copy(r.mesh.position).addScaledVector(r.gridCenter, f).divideScalar(1 + f);
-  } else {
-    r.base.copy(r.mesh.position);
-  }
+  r.base.copy(r.mesh.position);
 }
 
 // ──── Custom drag: horizontal-plane by default, Shift+drag for vertical lift ────

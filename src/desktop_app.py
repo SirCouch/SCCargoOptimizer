@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QComboBox, QPushButton, QTableWidget, QTableWidgetItem, QSpinBox,
     QTextEdit, QSplitter, QMessageBox, QHeaderView, QGroupBox, QStatusBar,
-    QTabWidget, QInputDialog, QToolButton, QSizePolicy,
+    QTabWidget, QInputDialog, QToolButton, QSizePolicy, QProgressBar,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -29,7 +29,7 @@ def _resource_root() -> Path:
 
 APP_ORG = "StarCitizen"
 APP_NAME = "CargoOptimizer"
-APP_VERSION = "0.1.5"
+APP_VERSION = "0.1.6"
 
 
 def _user_data_dir() -> Path:
@@ -174,12 +174,22 @@ QPushButton:pressed {{ background-color: {surface}; }}
 QPushButton:disabled {{ color: {muted}; background-color: {surface}; }}
 QPushButton#optimize_btn {{
     background-color: {good}; color: {good_fg};
-    font-size: 13px; font-weight: 600;
-    border: 1px solid {good_hi}; min-height: 32px;
+    font-size: 14px; font-weight: 800;
+    border: 2px solid {good_hi}; border-radius: {r6};
+    padding: 10px 18px; min-height: 42px;
 }}
-QPushButton#optimize_btn:hover {{ background-color: {good_hi}; }}
-QPushButton#optimize_btn:pressed {{ background-color: {good_lo}; }}
+QPushButton#optimize_btn:hover {{ background-color: {good_hi}; border-color: {fg}; }}
+QPushButton#optimize_btn:pressed {{ background-color: {good_lo}; padding-top: 12px; padding-bottom: 8px; }}
 QPushButton#optimize_btn:disabled {{ background-color: {good_dis}; color: {muted}; border-color: {border}; }}
+QProgressBar#optimize_progress {{
+    background-color: {surface}; color: {fg};
+    border: 2px solid {good}; border-radius: {r6};
+    min-height: 42px; text-align: center;
+    font-size: 13px; font-weight: 800;
+}}
+QProgressBar#optimize_progress::chunk {{
+    background-color: {good}; border-radius: {r4}; margin: 3px;
+}}
 QPushButton#danger {{ color: {bad}; }}
 QPushButton#danger:hover {{ background-color: {bad_dim}; border-color: {bad}; }}
 QToolButton {{
@@ -676,12 +686,24 @@ class MainWindow(QMainWindow):
         root.addWidget(self.splitter, 1)
 
         # Optimize button
-        self.optimize_btn = QPushButton("Optimize Packing")
+        self.optimize_btn = QPushButton("OPTIMIZE PACKING")
         self.optimize_btn.setObjectName("optimize_btn")
+        self.optimize_btn.setToolTip("Run the cargo packing optimizer for the selected ship and manifest")
+        self.optimize_btn.setCursor(Qt.PointingHandCursor)
         self.optimize_btn.setEnabled(False)
         self.optimize_btn.clicked.connect(self._on_optimize)
         self.optimize_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         root.addWidget(self.optimize_btn)
+
+        self.optimize_progress = QProgressBar()
+        self.optimize_progress.setObjectName("optimize_progress")
+        self.optimize_progress.setTextVisible(True)
+        self.optimize_progress.setRange(0, 1)
+        self.optimize_progress.setValue(0)
+        self.optimize_progress.setFormat("Packing cargo...")
+        self.optimize_progress.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.optimize_progress.hide()
+        root.addWidget(self.optimize_progress)
 
         # Status bar with model indicator
         self.status = QStatusBar()
@@ -858,6 +880,7 @@ class MainWindow(QMainWindow):
 
     def _on_models_ready(self, router):
         self.router = router
+        self._set_packing_busy(False)
         self.optimize_btn.setEnabled(True)
         self._set_status("ready", "Models loaded · Ready to optimize")
 
@@ -871,6 +894,18 @@ class MainWindow(QMainWindow):
         self.status_dot.style().unpolish(self.status_dot)
         self.status_dot.style().polish(self.status_dot)
         self.status_text.setText(text)
+
+    def _set_packing_busy(self, busy):
+        if busy:
+            self.optimize_btn.hide()
+            self.optimize_progress.setRange(0, 0)
+            self.optimize_progress.setFormat("Packing cargo...")
+            self.optimize_progress.show()
+        else:
+            self.optimize_progress.hide()
+            self.optimize_progress.setRange(0, 1)
+            self.optimize_progress.setValue(0)
+            self.optimize_btn.show()
 
     def _refresh_preset_combo(self):
         self.preset_combo.clear()
@@ -961,6 +996,7 @@ class MainWindow(QMainWindow):
         ship_grids = [serialize_grid(g) for g in ship["grids"]]
 
         self.optimize_btn.setEnabled(False)
+        self._set_packing_busy(True)
         self._set_status("loading", "Optimizing…")
         self.results_view.setPlainText("Running packing…")
 
@@ -970,6 +1006,7 @@ class MainWindow(QMainWindow):
         self.worker.start()
 
     def _on_pack_done(self, result):
+        self._set_packing_busy(False)
         self.optimize_btn.setEnabled(True)
         sr = result.get("metrics", {}).get("success_rate", 0) * 100
         ut = result.get("metrics", {}).get("volume_utilization", 0) * 100
@@ -1001,6 +1038,7 @@ class MainWindow(QMainWindow):
         self.viewer.page().runJavaScript(js, 0, _cb)
 
     def _on_pack_failed(self, msg):
+        self._set_packing_busy(False)
         self.optimize_btn.setEnabled(True)
         self._set_status("error", "Packing failed")
         QMessageBox.critical(self, "Packing Error", msg)

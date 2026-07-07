@@ -1,5 +1,42 @@
 # Changes
 
+## v0.1.6 - 2026-07-07
+
+### New
+- **Source development textures for cargo boxes.** Modern-mode cargo boxes now use
+  procedural Source-style development panels with grid markings, face labels, SCU
+  size text, and a small priority strip. The 8-Bit box style remains unchanged.
+- **Clear packing progress state.** The Optimize control is now a prominent
+  call-to-action button and swaps to an indeterminate progress bar while packing runs.
+- **Updated ship grid data.** `ships_cargo_grids.json` has been refreshed with the
+  latest ship/grid updates.
+
+### Fixed
+- **Large-grid MER geometry loss.** Replaced the MER pruning overlap heuristic with
+  true containment checks. Large grids no longer lose valid empty regions after early
+  placements, which was causing boxes to be marked unplaceable despite visible space.
+- **Inference repair fallback.** If the model/MER path skips an item but a deterministic
+  integer-grid scan finds a legal placement, inference now places the item and records
+  the repair in diagnostics instead of leaving it unplaced.
+- **Viewer startup theme sync.** The desktop app now ignores the viewer's boot-time
+  default theme broadcast until the saved host theme has been pushed into the page.
+- **Grid editor Clear Layout.** The dev grid editor can now persist a cleared layout
+  instead of re-baking auto-row positions during save.
+- **Viewer drag/drop edge cases.** Fixed stale mid-drag rotation fallback positions,
+  cancelled tween state, reset-animation drag conflicts, stacked-grid snapping, and
+  elevated-grid floor guards.
+- **Checkpoint discovery and packaging.** Model discovery now probes all three
+  specialist checkpoint names, and PyInstaller fails fast if any required checkpoint
+  is missing instead of silently packaging a partial model set.
+- **Blocked-volume accounting.** Overlapping grid cutouts are now counted as a union
+  instead of double-subtracting shared volume.
+- **Debug visualization labels.** Cargo labels in debug plots now skip seeded blockers
+  so numbering matches packed cargo IDs.
+
+### Removed
+- Removed the viewer Transparent mode and Explode slider. Cargo boxes now render solid
+  and stay at their actual model/manual positions.
+
 ## v0.1.5 - 2026-07-05
 
 ### New

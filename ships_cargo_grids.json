@@ -373,7 +373,7 @@
           "dimensions": [
             2,
             4,
-            2
+            4
           ],
           "layout": {
             "position": [
@@ -388,7 +388,7 @@
           "dimensions": [
             2,
             4,
-            2
+            4
           ],
           "layout": {
             "position": [
@@ -1781,7 +1781,7 @@
       ]
     },
     {
-      "name": "Hull-c",
+      "name": "Hull-C",
       "grids": [
         {
           "name": "1",

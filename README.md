@@ -5,7 +5,7 @@ trained Graph Attention Network (GAT) models.
 
 ## Features
 
-- **Ship selector** for 40 Star Citizen ships from `ships_cargo_grids.json`
+- **Ship selector** for 43 Star Citizen ships from `ships_cargo_grids.json`
 - **Cargo manifest** editor with priority groups (1–5), bulk-edit, and per-row volume tracking
 - **Presets** — save/load named manifest configurations
 - **3D viewer** (Three.js) with:
@@ -14,7 +14,8 @@ trained Graph Attention Network (GAT) models.
   - Snap-to-grid integer alignment
   - Unplaced items spawn in a staging zone for manual placement
   - Click an item for full details (priority, dimensions, grid)
-  - Explode slider, transparency, grid-line overlay
+  - Source-style development textures for modern cargo boxes
+  - Grid-line overlay
 - **Ensemble inference** — three size-specialized models (small / medium / large)
   selected automatically based on ship total SCU capacity
 
