@@ -3,6 +3,7 @@ import os
 import sys
 import traceback
 from pathlib import Path
+from urllib.parse import unquote
 
 from PySide6.QtCore import Qt, QThread, Signal, QUrl, QSettings, QStandardPaths
 from PySide6.QtGui import QFont, QIcon
@@ -91,6 +92,24 @@ THEME_PALETTES = {
                 "btn": "#211f16", "btn_hover": "#35321f"},
 }
 THEME_STYLES = ("modern", "retro")
+
+PRIORITY_COLOR_OPTIONS = [
+    ("Blue", "#0072B2"),
+    ("Orange", "#E69F00"),
+    ("Bluish Green", "#009E73"),
+    ("Vermilion", "#D55E00"),
+    ("Reddish Purple", "#CC79A7"),
+    ("Sky Blue", "#56B4E9"),
+    ("Yellow", "#F0E442"),
+    ("Neutral Gray", "#8A8A8A"),
+]
+DEFAULT_PRIORITY_COLORS = [
+    "#0072B2",
+    "#E69F00",
+    "#009E73",
+    "#D55E00",
+    "#CC79A7",
+]
 
 
 def _mix(hex_a, hex_b, t):
@@ -246,6 +265,39 @@ def load_presets():
 def save_presets(presets):
     with open(PRESETS_FILE, "w") as f:
         json.dump(presets, f, indent=2)
+
+
+def _allowed_priority_colors():
+    return {color.upper() for _name, color in PRIORITY_COLOR_OPTIONS}
+
+
+def _validated_priority_colors(colors):
+    allowed = _allowed_priority_colors()
+    try:
+        normalized = [str(color).upper() for color in colors]
+    except TypeError:
+        return None
+    if len(normalized) != MAX_PRIORITY:
+        return None
+    if len(set(normalized)) != MAX_PRIORITY:
+        return None
+    if any(color not in allowed for color in normalized):
+        return None
+    return normalized
+
+
+def _normalize_priority_colors(colors):
+    return _validated_priority_colors(colors) or list(DEFAULT_PRIORITY_COLORS)
+
+
+def _load_priority_colors(settings):
+    raw = settings.value("priority_colors", "")
+    if not raw:
+        return list(DEFAULT_PRIORITY_COLORS)
+    try:
+        return _normalize_priority_colors(json.loads(str(raw)))
+    except Exception:
+        return list(DEFAULT_PRIORITY_COLORS)
 
 
 class ModelLoader(QThread):
@@ -442,6 +494,7 @@ class MainWindow(QMainWindow):
         self.router = None
         self.ships_data = self._load_ships()
         self.presets = load_presets()
+        self._viewer_messages_ready = False
 
         self.theme_style = str(self.settings.value("theme_style", "modern"))
         self.theme_palette = str(self.settings.value("theme_palette", "default"))
@@ -449,6 +502,7 @@ class MainWindow(QMainWindow):
             self.theme_style = "modern"
         if self.theme_palette not in THEME_PALETTES:
             self.theme_palette = "default"
+        self.priority_colors = _load_priority_colors(self.settings)
         self._apply_app_theme()
 
         self._build_ui()
@@ -607,9 +661,8 @@ class MainWindow(QMainWindow):
         # Results: 3D View + Summary tabs
         results_tabs = QTabWidget()
         self.viewer = QWebEngineView()
-        # Theme sync: the viewer announces Style/Palette picks via its page
-        # title; on load we push the app's saved theme into the viewer.
-        self.viewer.titleChanged.connect(self._on_viewer_theme_changed)
+        # Viewer settings sync: the page title is used as a small message bus.
+        self.viewer.titleChanged.connect(self._on_viewer_title_changed)
         self.viewer.loadFinished.connect(self._on_viewer_loaded)
         self.viewer.load(QUrl.fromLocalFile(str(VIEWER_HTML)))
         results_tabs.addTab(self.viewer, "3D View")
@@ -709,15 +762,38 @@ class MainWindow(QMainWindow):
               f"{json.dumps(self.theme_style)}, {json.dumps(self.theme_palette)});")
         self.viewer.page().runJavaScript(js)
 
+    def _push_priority_colors_to_viewer(self):
+        if not hasattr(self, "viewer"):
+            return
+        js = f"window.setPriorityColors && window.setPriorityColors({json.dumps(self.priority_colors)});"
+        self.viewer.page().runJavaScript(js)
+
     def _on_viewer_loaded(self, ok):
         if ok:
             self._push_theme_to_viewer()
+            self._push_priority_colors_to_viewer()
+            self._viewer_messages_ready = True
 
-    def _on_viewer_theme_changed(self, title):
-        parts = str(title).split("|")
-        if len(parts) != 3 or parts[0] != "sc-theme":
+    def _on_viewer_title_changed(self, title):
+        title = str(title)
+        if title.startswith("sc-theme|"):
+            if not self._viewer_messages_ready:
+                return
+            parts = title.split("|", 2)
+            if len(parts) == 3:
+                self._set_theme(parts[1], parts[2], from_viewer=True)
             return
-        self._set_theme(parts[1], parts[2], from_viewer=True)
+        if title.startswith("sc-priority-colors|"):
+            try:
+                raw = unquote(title.split("|", 1)[1])
+                colors = _validated_priority_colors(json.loads(raw))
+            except Exception:
+                colors = None
+            if not colors or colors == self.priority_colors:
+                return
+            self.priority_colors = colors
+            self.settings.setValue("priority_colors", json.dumps(colors))
+            self._set_status("ready", "Priority colors updated")
 
     def _selected_ship(self):
         name = self.ship_combo.currentText()
@@ -967,11 +1043,19 @@ class MainWindow(QMainWindow):
         diag = result.get("diagnostics")
         if diag:
             missed = diag.get("missed_placements", [])
+            repaired = diag.get("repaired_placements", [])
             truly = diag.get("skipped_items", [])
-            if missed or truly:
+            if missed or repaired or truly:
                 lines.append("\n" + "=" * 60)
                 lines.append("DIAGNOSTICS")
                 lines.append("=" * 60)
+            if repaired:
+                lines.append(f"\nFallback placed {len(repaired)} item(s) the model would have skipped:")
+                for r in repaired:
+                    lines.append(
+                        f"  item#{r['item_idx']} dims={r['dims']} P{r['priority']} "
+                        f"-> placed at {r['feasible_position']} on '{r['grid_name']}' (rot={r['rotation']})"
+                    )
             if missed:
                 lines.append(f"\nMER tracking missed {len(missed)} feasible placement(s):")
                 for m in missed:

@@ -52,15 +52,26 @@ opt_d = sum((x[0] for x in optional_collected), [])
 opt_b = sum((x[1] for x in optional_collected), [])
 opt_h = sum((x[2] for x in optional_collected), [])
 
-model_datas = (
-    [("checkpoints", "checkpoints")]
-    if os.path.isdir("checkpoints")
-    else [
-        ("small_gnn_model.pt", "."),
-        ("medium_gnn_model.pt", "."),
-        ("large_gnn_model.pt", "."),
-    ]
+MODEL_CHECKPOINTS = (
+    "small_gnn_model.pt",
+    "medium_gnn_model.pt",
+    "large_gnn_model.pt",
 )
+model_datas = []
+missing_models = []
+for checkpoint_name in MODEL_CHECKPOINTS:
+    checkpoint_path = os.path.join("checkpoints", checkpoint_name)
+    if os.path.isfile(checkpoint_path):
+        model_datas.append((checkpoint_path, "checkpoints"))
+    elif os.path.isfile(checkpoint_name):
+        model_datas.append((checkpoint_name, "."))
+    else:
+        missing_models.append(checkpoint_name)
+
+if missing_models:
+    raise FileNotFoundError(
+        "Missing required model checkpoint(s): " + ", ".join(missing_models)
+    )
 
 a = Analysis(
     ["src/desktop_app.py"],

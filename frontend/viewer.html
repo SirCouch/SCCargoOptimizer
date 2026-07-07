@@ -23,11 +23,17 @@
   #hud .v { color: var(--fg); font-weight: 600; }
   #hud .accent { color: var(--accent); }
   #legend { position: absolute; top: 10px; right: 10px; padding: 10px 14px;
-            font-size: 12px; min-width: 110px; pointer-events: none; z-index: 5; }
+            font-size: 12px; min-width: 196px; pointer-events: auto; z-index: 5; }
   #legend .title { color: var(--muted); font-size: 10px; text-transform: uppercase;
                    letter-spacing: 0.6px; margin-bottom: 6px; }
+  #legend .legend-row { display: grid; grid-template-columns: 26px 18px minmax(118px, 1fr);
+                        gap: 7px; align-items: center; margin-top: 5px; }
+  #legend .legend-row.unused { opacity: 0.72; }
+  #legend .legend-label { color: var(--fg); font-weight: 600; }
+  #legend select { width: 100%; min-width: 0; padding: 2px 4px; font-size: 11px; }
   .sw { display: inline-block; width: 14px; height: 14px; margin-right: 8px;
         vertical-align: middle; border-radius: 2px; border: 1px solid rgba(0,0,0,0.4); }
+  #legend .sw { margin-right: 0; }
   #controls { position: absolute; bottom: 10px; left: 10px; padding: 8px 12px;
               font-size: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
               max-width: calc(100% - 320px); z-index: 5; }
@@ -251,6 +257,18 @@ const PALETTES = {
   },
 };
 
+const PRIORITY_COLOR_OPTIONS = [
+  { label: 'Blue', value: '#0072B2' },
+  { label: 'Orange', value: '#E69F00' },
+  { label: 'Green', value: '#009E73' },
+  { label: 'Vermilion', value: '#D55E00' },
+  { label: 'Purple', value: '#CC79A7' },
+  { label: 'Sky Blue', value: '#56B4E9' },
+  { label: 'Yellow', value: '#F0E442' },
+  { label: 'Gray', value: '#8A8A8A' },
+];
+const DEFAULT_PRIORITY_COLORS = PRIORITY_COLOR_OPTIONS.slice(0, 5).map(c => c.value);
+
 let styleKey = 'modern';
 let paletteKey = 'default';
 try {
@@ -259,9 +277,26 @@ try {
 } catch (e) { /* storage unavailable */ }
 let STYLE = STYLES[styleKey];
 let PAL = PALETTES[paletteKey];
+let priorityColorsOverride = [...DEFAULT_PRIORITY_COLORS];
+try {
+  const savedPriorityColors = normalizePriorityColors(JSON.parse(localStorage.getItem('cargoViewerPriorityColors')));
+  if (savedPriorityColors) priorityColorsOverride = savedPriorityColors;
+} catch (e) { /* storage unavailable */ }
 
 const GRID_GAP = 2.0;
 const STAGING_GAP = 4.0;     // gap between grids and the unplaced staging zone
+const SNAP_SEARCH_OFFSETS = (() => {
+  const offsets = [[0, 0]];
+  for (let rad = 1; rad <= 2; rad++) {
+    for (let dx = -rad; dx <= rad; dx++) {
+      for (let dz = -rad; dz <= rad; dz++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) === rad) offsets.push([dx, dz]);
+      }
+    }
+  }
+  offsets.sort((a, b) => (a[0]*a[0] + a[1]*a[1]) - (b[0]*b[0] + b[1]*b[1]));
+  return offsets;
+})();
 
 let scene, camera, renderer, orbit;
 let ambLight, keyLight, fillLight;
@@ -418,7 +453,7 @@ function onKeyDown(event) {
   event.preventDefault();
   const r = selectedRec;
   const cand = r.mesh.position.clone().add(delta);
-  if (cand.y < r.dims[2] / 2 - 0.001) return;  // don't push through the floor
+  if (cand.y - r.dims[2] / 2 < nudgeFloorY(r, cand) - 0.001) return;
   if (collidesAt(r, cand)) {
     showTip('Blocked — something is in the way', 1200);
     return;
@@ -477,6 +512,16 @@ function addTween({ dur, update, done }) {
 
 function killTween(tw) { if (tw) tw.dead = true; }
 
+function cancelItemTween(r, syncCurrent = false) {
+  if (!r || !r.__tween) return;
+  killTween(r.__tween);
+  r.__tween = null;
+  if (syncCurrent) {
+    setBaseFromCurrent(r);
+    updateValidity(r);
+  }
+}
+
 function updateTweens() {
   if (!tweens.length) return;
   const now = performance.now();
@@ -524,7 +569,7 @@ function smoothCamTo(pos, target, dur = 450) {
 
 function clearScene() {
   for (const r of itemMeshes) {
-    killTween(r.__tween);
+    cancelItemTween(r);
     scene.remove(r.mesh);
     if (r.edge) scene.remove(r.edge);
   }
@@ -546,7 +591,32 @@ function clearScene() {
 }
 
 function priorityColor(p) {
-  return PAL.priorities[p - 1] || '#cccccc';
+  const colors = priorityColorsOverride || PAL.priorities;
+  return colors[p - 1] || '#cccccc';
+}
+
+function normalizePriorityColors(colors) {
+  if (!Array.isArray(colors) || colors.length !== 5) return null;
+  const normalized = colors.map(c => String(c).trim().toUpperCase());
+  const valid = normalized.every(c => /^#[0-9A-F]{6}$/.test(c));
+  if (!valid || new Set(normalized).size !== normalized.length) return null;
+  const allowed = new Set(PRIORITY_COLOR_OPTIONS.map(c => c.value.toUpperCase()));
+  if (normalized.some(c => !allowed.has(c))) return null;
+  return normalized;
+}
+
+function applyPriorityColors() {
+  renderLegend();
+  for (const r of itemMeshes) {
+    rebuildItemMaterials(r);
+    updateItemVisual(r);
+  }
+  if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; ghostKey = ''; }
+}
+
+function broadcastPriorityColors() {
+  const payload = encodeURIComponent(JSON.stringify(priorityColorsOverride));
+  document.title = 'sc-priority-colors|' + payload;
 }
 
 window.loadPacking = function(data) {
@@ -786,11 +856,26 @@ window.loadPacking = function(data) {
 };
 
 function renderLegend() {
-  const lines = lastPriorities.map(p =>
-    `<div><span class="sw" style="background:${priorityColor(p)}"></span>Priority ${p}</div>`
-  );
-  document.getElementById('legend').innerHTML = lines.length
-    ? `<div class="title">Priority</div>${lines.join('')}` : '';
+  const used = new Set(lastPriorities);
+  const colors = priorityColorsOverride || DEFAULT_PRIORITY_COLORS;
+  const rows = [1, 2, 3, 4, 5].map(p => {
+    const current = colors[p - 1];
+    const usedByOther = new Set(colors.filter((_, idx) => idx !== p - 1));
+    const options = PRIORITY_COLOR_OPTIONS.map(({ label, value }) => {
+      const selected = value === current ? ' selected' : '';
+      const disabled = value !== current && usedByOther.has(value) ? ' disabled' : '';
+      return `<option value="${value}"${selected}${disabled}>${label}</option>`;
+    }).join('');
+    const unused = used.size > 0 && !used.has(p) ? ' unused' : '';
+    return `<div class="legend-row${unused}">
+      <span class="legend-label">P${p}</span>
+      <span class="sw" style="background:${current}"></span>
+      <select title="P${p} color" onchange="window.setPriorityColor(${p}, this.value)">
+        ${options}
+      </select>
+    </div>`;
+  });
+  document.getElementById('legend').innerHTML = `<div class="title">Priority</div>${rows.join('')}`;
 }
 
 function scuDimsFromType(scu) {
@@ -933,37 +1018,123 @@ function restyleBlocker(b) {
   if (b.plate) b.plate.material.color.set(c.plate);
 }
 
-const unitTexCache = new Map();
+const faceTexCache = new Map();
 
-// Grayscale texture drawing u×v raised "pixel blocks" (beveled unit cells).
-// Material color multiplies it, so one cached texture serves every priority.
-function unitTex(u, v) {
-  u = Math.max(1, Math.round(u)); v = Math.max(1, Math.round(v));
-  const key = u + 'x' + v;
-  if (unitTexCache.has(key)) return unitTexCache.get(key);
-  const px = 24;
-  const c = document.createElement('canvas');
-  c.width = u * px; c.height = v * px;
-  const g = c.getContext('2d');
-  for (let i = 0; i < u; i++) {
-    for (let j = 0; j < v; j++) {
-      const x = i * px, y = j * px;
-      g.fillStyle = '#d6d6d6'; g.fillRect(x, y, px, px);
-      g.fillStyle = '#ffffff'; g.fillRect(x + 2, y + 2, px - 4, 4);
-      g.fillRect(x + 2, y + 2, 4, px - 4);
-      g.fillStyle = '#8f8f8f'; g.fillRect(x + 2, y + px - 6, px - 4, 4);
-      g.fillRect(x + px - 6, y + 2, 4, px - 4);
-      g.fillStyle = 'rgba(0,0,0,0.85)';
-      g.fillRect(x, y, px, 2); g.fillRect(x, y, 2, px);
-      g.fillRect(x, y + px - 2, px, 2); g.fillRect(x + px - 2, y, 2, px);
-    }
+function scuVolumeFromInfo(info, dims) {
+  const m = String((info && info.scu) || '').match(/^(\d+)/);
+  if (m) return Number(m[1]);
+  return Math.max(1, Math.round((dims || [1, 1, 1]).reduce((p, c) => p * c, 1)));
+}
+
+function drawSteppedDiagonal(g, w, h, rising) {
+  const steps = 10;
+  const mark = Math.max(5, Math.round(Math.min(w, h) * 0.13));
+  const pad = Math.max(8, mark);
+  for (let i = 0; i < steps; i++) {
+    const t = steps === 1 ? 0 : i / (steps - 1);
+    const x = Math.round(pad + t * (w - pad * 2 - mark));
+    const yT = rising ? 1 - t : t;
+    const y = Math.round(pad + yT * (h - pad * 2 - mark));
+    g.fillRect(x, y, mark, mark);
   }
+}
+
+function drawSizeLabel(g, w, h, volume) {
+  const label = String(volume);
+  const fontSize = Math.max(22, Math.floor(Math.min(h * 0.54, (w / label.length) * 0.92)));
+  g.font = `900 ${fontSize}px Consolas, "Courier New", monospace`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.lineWidth = Math.max(3, Math.round(fontSize * 0.12));
+  g.strokeStyle = 'rgba(255,255,255,0.78)';
+  g.strokeText(label, w / 2, h / 2);
+  g.fillStyle = 'rgba(0,0,0,0.82)';
+  g.fillText(label, w / 2, h / 2);
+}
+
+function drawSizePanel(g, w, h, volume) {
+  const minSide = Math.min(w, h);
+  const border = Math.max(4, Math.round(minSide * 0.075));
+  const pad = border * 2;
+  const band = Math.max(5, Math.round(minSide * 0.16));
+
+  g.fillStyle = '#d7d7d7';
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = '#ffffff';
+  g.fillRect(border, border, w - border * 2, border);
+  g.fillRect(border, border, border, h - border * 2);
+  g.fillStyle = '#8f8f8f';
+  g.fillRect(border, h - border * 2, w - border * 2, border);
+  g.fillRect(w - border * 2, border, border, h - border * 2);
+  g.fillStyle = 'rgba(0,0,0,0.9)';
+  g.fillRect(0, 0, w, border);
+  g.fillRect(0, 0, border, h);
+  g.fillRect(0, h - border, w, border);
+  g.fillRect(w - border, 0, border, h);
+
+  g.fillStyle = 'rgba(0,0,0,0.58)';
+  switch (volume) {
+    case 1:
+      g.fillRect(Math.round(w * 0.28), Math.round(h * 0.28),
+                 Math.round(w * 0.44), Math.round(h * 0.44));
+      break;
+    case 2:
+      drawSteppedDiagonal(g, w, h, true);
+      break;
+    case 4:
+      g.fillRect(pad, pad, band, band);
+      g.fillRect(w - pad - band, pad, band, band);
+      g.fillRect(pad, h - pad - band, band, band);
+      g.fillRect(w - pad - band, h - pad - band, band, band);
+      break;
+    case 8:
+      g.fillRect(Math.round(w / 2 - band / 2), pad, band, h - pad * 2);
+      g.fillRect(pad, Math.round(h / 2 - band / 2), w - pad * 2, band);
+      break;
+    case 16:
+      g.fillRect(pad, Math.round(h * 0.3 - band / 2), w - pad * 2, band);
+      g.fillRect(pad, Math.round(h * 0.7 - band / 2), w - pad * 2, band);
+      break;
+    case 24:
+      g.fillRect(Math.round(w * 0.25 - band / 2), pad, band, h - pad * 2);
+      g.fillRect(Math.round(w * 0.5 - band / 2), pad, band, h - pad * 2);
+      g.fillRect(Math.round(w * 0.75 - band / 2), pad, band, h - pad * 2);
+      break;
+    case 32:
+      drawSteppedDiagonal(g, w, h, true);
+      drawSteppedDiagonal(g, w, h, false);
+      g.fillStyle = 'rgba(255,255,255,0.72)';
+      g.fillRect(Math.round(w / 2 - band / 2), pad, band, h - pad * 2);
+      g.fillRect(pad, Math.round(h / 2 - band / 2), w - pad * 2, band);
+      break;
+    default:
+      g.fillRect(pad, pad, w - pad * 2, h - pad * 2);
+      break;
+  }
+
+  drawSizeLabel(g, w, h, volume);
+}
+
+// Grayscale texture drawing one full-face crate panel. Each SCU size gets a
+// distinct whole-face marking while priority color still tints the material.
+function faceTex(u, v, volume) {
+  u = Math.max(1, Math.round(u)); v = Math.max(1, Math.round(v));
+  volume = Math.max(1, Math.round(volume));
+  const key = u + 'x' + v + ':' + volume;
+  if (faceTexCache.has(key)) return faceTexCache.get(key);
+  const px = 36;
+  const c = document.createElement('canvas');
+  c.width = Math.max(48, u * px);
+  c.height = Math.max(48, v * px);
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  drawSizePanel(g, c.width, c.height, volume);
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter;
   t.minFilter = THREE.NearestFilter;
   t.generateMipmaps = false;
   if ('colorSpace' in t) t.colorSpace = THREE.SRGBColorSpace;
-  unitTexCache.set(key, t);
+  faceTexCache.set(key, t);
   return t;
 }
 
@@ -974,7 +1145,8 @@ function rebuildItemMaterials(r) {
   if (STYLE.pixel) {
     // BoxGeometry(w, h, l) face order: ±x (l×h), ±y (w×l), ±z (w×h)
     const [gw, gl, gh] = r.geomDims;
-    const fx = unitTex(gl, gh), fy = unitTex(gw, gl), fz = unitTex(gw, gh);
+    const volume = scuVolumeFromInfo(r.info, r.geomDims);
+    const fx = faceTex(gl, gh, volume), fy = faceTex(gw, gl, volume), fz = faceTex(gw, gh, volume);
     mats = [fx, fx, fy, fy, fz, fz].map(t => new THREE.MeshStandardMaterial({
       color, map: t, transparent: true, roughness: 0.9, metalness: 0.0,
     }));
@@ -1085,6 +1257,36 @@ window.setTheme = function(style, palette) {
   applyTheme();
 };
 
+window.setPriorityColors = function(colors) {
+  const normalized = normalizePriorityColors(colors);
+  if (!normalized) return false;
+  priorityColorsOverride = normalized;
+  try {
+    localStorage.setItem('cargoViewerPriorityColors', JSON.stringify(priorityColorsOverride));
+  } catch (e) { /* storage unavailable */ }
+  if (scene) applyPriorityColors();
+  return true;
+};
+
+window.setPriorityColor = function(priority, color) {
+  const idx = Number(priority) - 1;
+  if (idx < 0 || idx >= 5) return false;
+  const next = [...priorityColorsOverride];
+  next[idx] = String(color).toUpperCase();
+  const normalized = normalizePriorityColors(next);
+  if (!normalized) {
+    renderLegend();
+    return false;
+  }
+  priorityColorsOverride = normalized;
+  try {
+    localStorage.setItem('cargoViewerPriorityColors', JSON.stringify(priorityColorsOverride));
+  } catch (e) { /* storage unavailable */ }
+  if (scene) applyPriorityColors();
+  broadcastPriorityColors();
+  return true;
+};
+
 function populateThemeSelectors() {
   const ss = document.getElementById('styleSelect');
   const ps = document.getElementById('paletteSelect');
@@ -1102,22 +1304,18 @@ window.resetView = function() {
 
 window.resetPositions = function() {
   if (!itemMeshes.length) return;
+  let remaining = itemMeshes.length;
   for (const r of itemMeshes) {
-    killTween(r.__tween);
-    r.__tween = null;
+    cancelItemTween(r);
     r.base.copy(r.originalPos);
+    const target = explodedPos(r);
+    r.__tween = tweenItemTo(r, target, 400, () => {
+      r.__tween = null;
+      updateValidity(r);
+      remaining -= 1;
+      if (remaining === 0 && selectedRec) showInfo(selectedRec);
+    });
   }
-  const starts = itemMeshes.map(r => r.mesh.position.clone());
-  const targets = itemMeshes.map(r => explodedPos(r));
-  const tmp = new THREE.Vector3();
-  addTween({
-    dur: 400,
-    update: e => itemMeshes.forEach((r, i) => setItemPos(r, tmp.lerpVectors(starts[i], targets[i], e))),
-    done: () => {
-      for (const r of itemMeshes) updateValidity(r);
-      if (selectedRec) showInfo(selectedRec);
-    },
-  });
 };
 
 window.toggleTransparent = function() {
@@ -1235,8 +1433,7 @@ function onPointerDown(event) {
   event.stopImmediatePropagation();
 
   const r = hit.object.userData;
-  killTween(r.__tween);
-  r.__tween = null;
+  cancelItemTween(r, true);
   const mode = event.shiftKey ? 'vertical' : 'horizontal';
   const plane = makeDragPlane(r.mesh.position, mode);
   const planeHit = intersectPlaneFromEvent(event, plane);
@@ -1328,7 +1525,7 @@ function onPointerDrag(event) {
   } else {
     newPos.x = dragState.startPos.x;
     newPos.z = dragState.startPos.z;
-    newPos.y = Math.max(r.dims[2] / 2, newPos.y);
+    newPos.y = Math.max(nudgeFloorY(r, newPos) + r.dims[2] / 2, newPos.y);
   }
   setItemPos(r, newPos);
   dragState.hasMoved = dragState.hasMoved || newPos.distanceTo(dragState.startPos) > 0.05;
@@ -1407,10 +1604,11 @@ function onPointerUp() {
   // is off and it's clear, or glide back to the last valid position.
   let target = null;
   if (moved) {
+    const fallback = findValidDragFallback(r, dragState.lastValid);
     if (snapEnabled()) {
-      target = findFreeSnapPosition(r, r.mesh.position) || dragState.lastValid.clone();
+      target = findFreeSnapPosition(r, r.mesh.position) || fallback;
     } else if (collidesAt(r, r.mesh.position)) {
-      target = dragState.lastValid.clone();
+      target = fallback;
     }
   }
 
@@ -1428,6 +1626,7 @@ function onPointerUp() {
   }
 
   const finish = () => {
+    r.__tween = null;
     setBaseFromCurrent(r);
     updateValidity(r);
   };
@@ -1446,8 +1645,11 @@ function boxesOverlap(pa, da, pb, db, eps = 0.001) {
 }
 
 function collidesAt(r, pos) {
-  for (const other of [...itemMeshes, ...blockerMeshes]) {
+  for (const other of itemMeshes) {
     if (other === r) continue;
+    if (boxesOverlap(pos, r.dims, other.mesh.position, other.dims)) return true;
+  }
+  for (const other of blockerMeshes) {
     if (boxesOverlap(pos, r.dims, other.mesh.position, other.dims)) return true;
   }
   return false;
@@ -1457,23 +1659,59 @@ function isColliding(r) {
   return collidesAt(r, r.mesh.position);
 }
 
+function clearPosition(r, pos) {
+  return pos && !collidesAt(r, pos) ? pos.clone() : null;
+}
+
+function findValidDragFallback(r, primary) {
+  const candidates = [
+    primary,
+    dragState && dragState.lastValid,
+    dragState && dragState.startPos,
+    r.mesh.position,
+  ];
+  for (const candidate of candidates) {
+    const clear = clearPosition(r, candidate);
+    if (clear) return clear;
+  }
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const free = findFreeSnapPosition(r, candidate);
+    if (free && !collidesAt(r, free)) return free;
+  }
+  return null;
+}
+
 function rotateItem(r) {
   // Z-axis rotation (around vertical) swaps the X/Y footprint — matches the env's
   // training-time rotation constraint (height locked).
   if (!r) return false;
   const [dw, dl, dh] = r.dims;
   if (dw === dl) return false;  // square footprint — visual no-op
+  const oldMeshRotation = r.mesh.rotation.y;
+  const oldEdgeRotation = r.edge.rotation.y;
   r.dims = [dl, dw, dh];
   r.mesh.rotation.y += Math.PI / 2;
   r.edge.rotation.y += Math.PI / 2;
 
   if (dragState && dragState.record === r) {
-    // Mid-drag: rotate freely — the drop logic resolves any overlap on release.
     if (dragState.mode === 'horizontal') {
       const p = r.mesh.position.clone();
       p.y = supportTopAt(r, p.x, p.z) + dh / 2;
       setItemPos(r, p);
     }
+    const fallback = findValidDragFallback(r, r.mesh.position);
+    if (!fallback) {
+      r.mesh.rotation.y = oldMeshRotation;
+      r.edge.rotation.y = oldEdgeRotation;
+      r.dims = [dw, dl, dh];
+      dragState.colliding = collidesAt(r, r.mesh.position);
+      updateItemVisual(r);
+      updateDropPreview(r);
+      showTip('No room to rotate here', 1400);
+      return false;
+    }
+    dragState.lastValid.copy(fallback);
     dragState.colliding = collidesAt(r, r.mesh.position);
     updateItemVisual(r);
     updateDropPreview(r);
@@ -1506,15 +1744,71 @@ function selectItem(r) {
   }
 }
 
-// Which grid (index) covers the given XZ point, or -1 for open workspace.
-function gridIndexAt(x, z) {
+function gridFootprintContainsBox(i, r, pos, eps = 0.001) {
+  const o = lastGridOrigins[i];
+  const dims = lastGrids[i] && gridDims(lastGrids[i]);
+  if (!o || !dims) return false;
+  const [gw, gl] = dims;
+  const [dw, dl] = r.dims;
+  return pos.x - dw/2 >= o.x - eps && pos.x + dw/2 <= o.x + gw + eps &&
+         pos.z - dl/2 >= o.z - eps && pos.z + dl/2 <= o.z + gl + eps;
+}
+
+function gridContainsBoxAt(i, r, pos, eps = 0.001) {
+  if (!gridFootprintContainsBox(i, r, pos, eps)) return false;
+  const o = lastGridOrigins[i];
+  const dims = lastGrids[i] && gridDims(lastGrids[i]);
+  const gh = dims[2];
+  const dh = r.dims[2];
+  return pos.y - dh/2 >= o.y - eps && pos.y + dh/2 <= o.y + gh + eps;
+}
+
+function gridIndexContainingBox(r, pos) {
+  for (const i of Object.keys(lastGridOrigins)) {
+    if (gridContainsBoxAt(i, r, pos)) return parseInt(i);
+  }
+  return -1;
+}
+
+function nudgeFloorY(r, cand) {
+  const currentGrid = gridIndexContainingBox(r, r.mesh.position);
+  if (currentGrid !== -1 && gridFootprintContainsBox(currentGrid, r, cand)) {
+    return lastGridOrigins[currentGrid].y;
+  }
+  const candGrid = gridIndexAt(cand.x, cand.z, cand.y, r.dims);
+  return candGrid === -1 ? 0 : lastGridOrigins[candGrid].y;
+}
+
+// Which grid (index) covers the given XZ point and optional Y span, or -1 for
+// open workspace. The Y test lets stacked grids resolve to the deck being used.
+function gridIndexAt(x, z, y = null, dimsForY = null) {
+  const matches = [];
   for (const [i, o] of Object.entries(lastGridOrigins)) {
     const dims = lastGrids[i] && gridDims(lastGrids[i]);
     if (!dims) continue;
-    const [gw, gl] = dims;
-    if (x >= o.x && x <= o.x + gw && z >= o.z && z <= o.z + gl) return parseInt(i);
+    const [gw, gl, gh] = dims;
+    if (x >= o.x && x <= o.x + gw && z >= o.z && z <= o.z + gl) {
+      const idx = parseInt(i);
+      if (y === null) return idx;
+      matches.push({ idx, origin: o, height: gh });
+    }
   }
-  return -1;
+  if (y === null || !matches.length) return -1;
+
+  const dh = dimsForY ? dimsForY[2] : 0;
+  const bottom = y - dh / 2;
+  const top = y + dh / 2;
+  for (const match of matches) {
+    if (bottom >= match.origin.y - 0.001 &&
+        top <= match.origin.y + match.height + 0.001) return match.idx;
+  }
+
+  let best = null;
+  for (const match of matches) {
+    if (match.origin.y <= bottom + 1.5 &&
+        (!best || match.origin.y > best.origin.y)) best = match;
+  }
+  return best ? best.idx : -1;
 }
 
 // Pure version of the drop snap: integer X/Z (clamped inside the grid under the
@@ -1522,7 +1816,7 @@ function gridIndexAt(x, z) {
 // deliberately lifted the box high, in which case honor the lift at integer Y.
 function computeSnappedPosition(r, pos) {
   const [dw, dl, dh] = r.dims;
-  const gidx = gridIndexAt(pos.x, pos.z);
+  const gidx = gridIndexAt(pos.x, pos.z, pos.y, r.dims);
 
   let x, z;
   if (gidx === -1) {
@@ -1559,15 +1853,9 @@ function computeSnappedPosition(r, pos) {
 // out to radius 2) for the closest free one. Returns null if everything nearby
 // is blocked.
 function findFreeSnapPosition(r, pos) {
-  const offsets = [[0, 0]];
-  for (let rad = 1; rad <= 2; rad++)
-    for (let dx = -rad; dx <= rad; dx++)
-      for (let dz = -rad; dz <= rad; dz++)
-        if (Math.max(Math.abs(dx), Math.abs(dz)) === rad) offsets.push([dx, dz]);
-  offsets.sort((a, b) => (a[0]*a[0] + a[1]*a[1]) - (b[0]*b[0] + b[1]*b[1]));
   const seen = new Set();
   const probe = new THREE.Vector3();
-  for (const [dx, dz] of offsets) {
+  for (const [dx, dz] of SNAP_SEARCH_OFFSETS) {
     probe.set(pos.x + dx, pos.y, pos.z + dz);
     const cand = computeSnappedPosition(r, probe);
     const key = `${cand.x.toFixed(2)},${cand.y.toFixed(2)},${cand.z.toFixed(2)}`;
@@ -1723,7 +2011,7 @@ window.__viewerDebug = {
     return [rect.left + (v.x + 1) / 2 * rect.width, rect.top + (1 - v.y) / 2 * rect.height];
   },
   selectedIndex: () => itemMeshes.indexOf(selectedRec),
-  theme: () => ({ style: styleKey, palette: paletteKey }),
+  theme: () => ({ style: styleKey, palette: paletteKey, priorityColors: priorityColorsOverride }),
 };
 
 try {

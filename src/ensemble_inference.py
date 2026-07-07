@@ -18,13 +18,16 @@ def _checkpoint_candidates(base_path, checkpoint_dir, checkpoint_name):
     ]
 
 
-def _default_base_path(checkpoint_dir, probe_checkpoint):
+def _default_base_path(checkpoint_dir, probe_checkpoints):
     cwd = Path.cwd()
     project_root = Path(__file__).resolve().parent.parent
+    if isinstance(probe_checkpoints, (str, Path)):
+        probe_checkpoints = (probe_checkpoints,)
     for base_path in (cwd, cwd.parent, project_root):
-        if any(candidate.exists() for candidate in _checkpoint_candidates(
-                base_path, checkpoint_dir, probe_checkpoint)):
-            return base_path
+        for probe_checkpoint in probe_checkpoints:
+            if any(candidate.exists() for candidate in _checkpoint_candidates(
+                    base_path, checkpoint_dir, probe_checkpoint)):
+                return base_path
     return cwd
 
 
@@ -45,7 +48,7 @@ class EnsembleRouter:
         # Prefer the explicit checkpoints/ folder while keeping root-level
         # checkpoints as a fallback for older source trees and bundles.
         base_path = Path(base_dir) if base_dir is not None else _default_base_path(
-            checkpoint_dir, small_ckpt)
+            checkpoint_dir, (small_ckpt, medium_ckpt, large_ckpt))
         self.checkpoint_paths = {
             "small": _resolve_checkpoint(base_path, checkpoint_dir, small_ckpt),
             "medium": _resolve_checkpoint(base_path, checkpoint_dir, medium_ckpt),

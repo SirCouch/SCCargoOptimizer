@@ -96,6 +96,7 @@ let shipIdx = 0;
 let records = [];           // per grid: {grid, group, box, edge, label, idx}
 let selected = null;
 let dragState = null;
+const clearedLayoutShips = new Set();
 
 // JSON [x, y, z] (z vertical) <-> world (x, y=up, z=length)
 const worldFromJson = p => new THREE.Vector3(p[0], p[2], p[1]);
@@ -141,6 +142,7 @@ window.addEventListener('resize', resize);
 async function loadDoc() {
   const res = await fetch('/ships_cargo_grids.json?t=' + Date.now());
   doc = await res.json();
+  clearedLayoutShips.clear();
 }
 
 function ship() { return doc.ships[shipIdx]; }
@@ -149,9 +151,14 @@ function hasLayoutPosition(grid) {
   return !!(grid.layout && Array.isArray(grid.layout.position) && grid.layout.position.length === 3);
 }
 
-function ensureAllLayouts() {
+function markLayoutAuthored() {
+  clearedLayoutShips.delete(shipIdx);
+}
+
+function ensureAllLayouts(skipShipIndices = new Set()) {
   let added = 0;
-  for (const s of doc.ships || []) {
+  for (const [shipIndex, s] of (doc.ships || []).entries()) {
+    if (skipShipIndices.has(shipIndex)) continue;
     let autoCursor = 0;
     for (const grid of s.grids || []) {
       const [w] = grid.dimensions;
@@ -323,6 +330,7 @@ function renderSelPanel() {
   for (const id of ['posX', 'posY', 'posZ']) {
     document.getElementById(id).onchange = () => {
       const v = ['posX', 'posY', 'posZ'].map(k => parseFloat(document.getElementById(k).value) || 0);
+      markLayoutAuthored();
       selected.group.position.copy(worldFromJson(v));
       if (selected.group.position.y < 0) selected.group.position.y = 0;
     };
@@ -393,6 +401,7 @@ window.addEventListener('pointermove', (e) => {
   if (!hit) return;
   const pos = hit.clone().sub(dragState.offset);
   const rec = dragState.rec;
+  markLayoutAuthored();
   if (dragState.vertical) {
     rec.group.position.y = Math.max(0, snapVal(pos.y));
   } else {
@@ -410,6 +419,7 @@ window.addEventListener('pointerup', () => {
 
 function rotateSelected() {
   if (!selected) return;
+  markLayoutAuthored();
   const rec = selected;
   const [w, l] = rec.grid.dimensions;
   const center = rec.group.position.clone().add(new THREE.Vector3(w/2, 0, l/2));
@@ -439,6 +449,7 @@ window.addEventListener('keydown', (e) => {
   }[e.key];
   if (!move) return;
   e.preventDefault();
+  markLayoutAuthored();
   selected.group.position.x += move[0];
   selected.group.position.y = Math.max(0, selected.group.position.y + move[1]);
   selected.group.position.z += move[2];
@@ -455,6 +466,10 @@ function setStatus(text, cls) {
 }
 
 function bakeCurrentLayout() {
+  if (clearedLayoutShips.has(shipIdx)) {
+    for (const g of ship().grids || []) delete g.layout;
+    return;
+  }
   records.forEach(rec => {
     rec.grid.layout = { position: jsonFromWorld(rec.group.position) };
   });
@@ -462,7 +477,7 @@ function bakeCurrentLayout() {
 
 async function save() {
   bakeCurrentLayout();
-  const added = ensureAllLayouts();
+  const added = ensureAllLayouts(clearedLayoutShips);
   const res = await fetch('/api/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -487,6 +502,7 @@ document.getElementById('revertBtn').onclick = async () => {
 };
 document.getElementById('clearBtn').onclick = () => {
   for (const g of ship().grids || []) delete g.layout;
+  clearedLayoutShips.add(shipIdx);
   buildShipScene(false);
   frameShip();
   setStatus('Layout cleared (press Save to persist)', '');
@@ -514,7 +530,7 @@ window.__editorDebug = {
   gridCount: () => records.length,
   gridData: (i) => JSON.parse(JSON.stringify(records[i].grid)),
   origin: (i) => jsonFromWorld(records[i].group.position),
-  setOrigin: (i, p) => { records[i].group.position.copy(worldFromJson(p)); refreshSelInputs(); },
+  setOrigin: (i, p) => { markLayoutAuthored(); records[i].group.position.copy(worldFromJson(p)); refreshSelInputs(); },
   select: (i) => setSelected(records[i]),
   rotate: () => rotateSelected(),
   save: () => save(),

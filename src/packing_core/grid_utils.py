@@ -98,13 +98,51 @@ def _volume(dimensions):
     return float(dimensions[0]) * float(dimensions[1]) * float(dimensions[2])
 
 
+def _blocked_union_volume(grid):
+    grid_dims = grid["dimensions"]
+    cuboids = []
+    for blocker in grid["blocked"]:
+        pos = blocker["position"]
+        dims = blocker["dimensions"]
+        lo = [max(0.0, float(pos[i])) for i in range(3)]
+        hi = [min(float(grid_dims[i]), float(pos[i]) + float(dims[i])) for i in range(3)]
+        if all(hi[i] > lo[i] for i in range(3)):
+            cuboids.append((lo, hi))
+
+    if not cuboids:
+        return 0.0
+
+    axes = [
+        sorted({coord for lo, hi in cuboids for coord in (lo[axis], hi[axis])})
+        for axis in range(3)
+    ]
+    total = 0.0
+    for xi in range(len(axes[0]) - 1):
+        x0, x1 = axes[0][xi], axes[0][xi + 1]
+        xm = (x0 + x1) / 2
+        for yi in range(len(axes[1]) - 1):
+            y0, y1 = axes[1][yi], axes[1][yi + 1]
+            ym = (y0 + y1) / 2
+            for zi in range(len(axes[2]) - 1):
+                z0, z1 = axes[2][zi], axes[2][zi + 1]
+                zm = (z0 + z1) / 2
+                if any(
+                    lo[0] <= xm < hi[0] and
+                    lo[1] <= ym < hi[1] and
+                    lo[2] <= zm < hi[2]
+                    for lo, hi in cuboids
+                ):
+                    total += (x1 - x0) * (y1 - y0) * (z1 - z0)
+    return total
+
+
 def grid_bounding_volume(grid):
     return _volume(normalize_grid(grid)["dimensions"])
 
 
 def grid_blocked_volume(grid):
     normalized = normalize_grid(grid)
-    return sum(_volume(blocker["dimensions"]) for blocker in normalized["blocked"])
+    return _blocked_union_volume(normalized)
 
 
 def grid_usable_volume(grid):

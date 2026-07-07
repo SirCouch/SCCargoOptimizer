@@ -13,6 +13,7 @@ from collections import deque
 # need matplotlib installed.
 plt = None
 from torch_geometric.data import Batch
+from .box3d import Box3D
 from .drl_env import DRLBinPackingEnv
 from .grid_utils import serialize_grids
 from .models import ActorGNN, CriticGNN, SharedGNNBackbone
@@ -626,10 +627,13 @@ def visualize_packing(env):
             ax.plot3D(face_array[:, 0], face_array[:, 1], face_array[:, 2], 'k-', alpha=0.2)
 
         # Plot placed items
-        for i, placed in enumerate(env.placed_items):
+        cargo_label = 0
+        for placed in env.placed_items:
             box = placed['box']
             priority = placed['priority']
             is_blocker = placed.get('is_blocker', False)
+            if not is_blocker:
+                cargo_label += 1
 
             # Define the vertices of the box
             x, y, z = [v.item() for v in box.position]
@@ -671,7 +675,8 @@ def visualize_packing(env):
 
             # Add text label in the center of the box
             box_center = [x + w / 2, y + l / 2, z + h / 2]
-            ax.text(box_center[0], box_center[1], box_center[2], "B" if is_blocker else str(i + 1),
+            ax.text(box_center[0], box_center[1], box_center[2],
+                    "B" if is_blocker else str(cargo_label),
                     color='white', ha='center', va='center', fontsize=8)
 
         # Set labels and title
@@ -770,11 +775,47 @@ def _brute_force_find_placement(env, item_tuple):
     return None
 
 
+def _skipped_item_info(item_idx, item_tuple):
+    return {
+        "item_idx": item_idx,
+        "dims": list(item_tuple[:3]),
+        "weight": item_tuple[3],
+        "priority": item_tuple[4],
+    }
+
+
+def _apply_brute_force_placement(env, item_tuple, found):
+    gidx, x, y, z, rot, iw, il, ih = found
+    position = torch.tensor([float(x), float(y), float(z)], dtype=torch.float)
+    dimensions = torch.tensor([float(iw), float(il), float(ih)], dtype=torch.float)
+    placed_item = Box3D(position, dimensions)
+
+    env.placed_items.append(env._placement_record(
+        placed_item,
+        weight=item_tuple[3],
+        priority=item_tuple[4],
+        grid_idx=gidx,
+    ))
+    env.successful_placements += 1
+    env._grid_placed_vol[gidx] += float(placed_item.volume.item())
+    env._grid_placed_count[gidx] += 1
+    env._cached_mers = None
+    env.mer_managers[gidx].update(placed_item)
+
+    return {
+        "grid_idx": gidx,
+        "grid_name": env.grids[gidx]['name'],
+        "feasible_position": [x, y, z],
+        "rotated_dims": [iw, il, ih],
+        "rotation": rot,
+    }
+
+
 def pack_single_manifest(actor, grids_list, manifest, device=None, diagnose=False):
     """
     Pack a single manifest across multiple grids using the trained model.
-    If diagnose=True, when the env skips an item, brute-force scan for any
-    feasible integer-grid placement and record it in result['diagnostics'].
+    If the GNN/MER path skips an item but an integer-grid scan finds a legal
+    slot, place it as a deterministic repair and record it in diagnostics.
     """
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -788,7 +829,7 @@ def pack_single_manifest(actor, grids_list, manifest, device=None, diagnose=Fals
     # Reset environment with manifest
     state = env.reset(cargo_manifest=cargo_manifest)
 
-    diagnostics = {"missed_placements": [], "skipped_items": []}
+    diagnostics = {"missed_placements": [], "repaired_placements": [], "skipped_items": []}
     skipped_indices = []  # actual manifest indices that failed to place
 
     # Run packing
@@ -805,6 +846,31 @@ def pack_single_manifest(actor, grids_list, manifest, device=None, diagnose=Fals
 
         # Check if there are any feasible actions
         if np.sum(feasibility_mask) == 0:
+            idx = env.current_item_idx
+            item_tuple = cargo_manifest[idx]
+            skipped_info = _skipped_item_info(idx, item_tuple)
+            found = _brute_force_find_placement(env, item_tuple)
+            if found is not None:
+                repair = _apply_brute_force_placement(env, item_tuple, found)
+                diagnostics["repaired_placements"].append({
+                    **skipped_info,
+                    **repair,
+                    "reason": "no_feasible_mer_action",
+                })
+                if diagnose:
+                    print(
+                        f"[repair] MER MISS: item#{idx} dims={skipped_info['dims']} "
+                        f"P{skipped_info['priority']} placed at "
+                        f"{repair['feasible_position']} on grid '{repair['grid_name']}' "
+                        f"rot={repair['rotation']}",
+                        flush=True,
+                    )
+                env._move_to_next_item()
+                if env.current_item is None:
+                    break
+                state = env._build_graph_state()
+                continue
+
             if diagnose:
                 idx = env.current_item_idx
                 item_tuple = cargo_manifest[idx]
@@ -851,7 +917,27 @@ def pack_single_manifest(actor, grids_list, manifest, device=None, diagnose=Fals
 
         # Detect skip-via-step-failure: item idx advanced but placements didn't
         if env.successful_placements == pre_step_placed and env.current_item_idx > pre_step_idx:
-            skipped_indices.append(pre_step_idx)
+            item_tuple = cargo_manifest[pre_step_idx]
+            found = _brute_force_find_placement(env, item_tuple)
+            if found is not None:
+                skipped_info = _skipped_item_info(pre_step_idx, item_tuple)
+                repair = _apply_brute_force_placement(env, item_tuple, found)
+                diagnostics["repaired_placements"].append({
+                    **skipped_info,
+                    **repair,
+                    "reason": info.get("error", "step_rejected_action"),
+                })
+                if diagnose:
+                    print(
+                        f"[repair] STEP FAIL: item#{pre_step_idx} dims={skipped_info['dims']} "
+                        f"P{skipped_info['priority']} placed at "
+                        f"{repair['feasible_position']} on grid '{repair['grid_name']}' "
+                        f"rot={repair['rotation']}",
+                        flush=True,
+                    )
+                state = env._build_graph_state()
+            else:
+                skipped_indices.append(pre_step_idx)
 
         if done:
             break

@@ -73,14 +73,14 @@ class MERManager:
         for i, box_i in enumerate(boxes):
             if box_i.volume < min_vol:
                 continue
-            is_maximal = True
+            redundant = False
             for j, box_j in enumerate(boxes):
-                if i != j:
-                    intersection = box_i.get_intersection(box_j)
-                    if intersection and intersection.volume > 0.9 * box_i.volume:
-                        is_maximal = False
-                        break
-            if is_maximal:
+                if i == j or not box_j.contains(box_i):
+                    continue
+                if not box_i.contains(box_j) or j < i:
+                    redundant = True
+                    break
+            if not redundant:
                 kept.append(box_i)
         return kept
 
