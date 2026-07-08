@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modern Box Concepts — SC Cargo Optimizer</title>
+</head>
+<body>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d; --fg: #e6edf3;
+    --muted: #8b949e; --accent: #58a6ff;
+    --mono: Consolas, "SF Mono", "Cascadia Mono", "Courier New", monospace;
+    --sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.55 var(--sans);
+  }
+  header.page {
+    max-width: 1180px; margin: 0 auto; padding: 34px 24px 6px;
+  }
+  header.page h1 { margin: 0 0 6px; font-size: 24px; font-weight: 700; letter-spacing: 0.2px; }
+  header.page p { margin: 0; color: var(--muted); max-width: 72ch; }
+  .controls {
+    position: sticky; top: 0; z-index: 5;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--border);
+    margin-top: 18px;
+  }
+  .controls-inner {
+    max-width: 1180px; margin: 0 auto; padding: 10px 24px;
+    display: flex; flex-wrap: wrap; gap: 18px; align-items: center;
+  }
+  .ctl { display: flex; align-items: center; gap: 8px; }
+  .ctl label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .seg button {
+    background: var(--panel); color: var(--muted); border: none; padding: 5px 11px;
+    font: 600 12.5px var(--sans); cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button.on { background: #22303f; color: var(--fg); }
+  .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .swatches { display: flex; gap: 6px; }
+  .swatches button {
+    width: 22px; height: 22px; border-radius: 5px; border: 2px solid transparent;
+    cursor: pointer; padding: 0;
+  }
+  .swatches button.on { border-color: var(--fg); }
+  .swatches button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 8px 24px 80px; }
+  section.concept {
+    margin-top: 34px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--panel); overflow: hidden;
+  }
+  .concept-head { padding: 16px 20px 14px; display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+  .concept-head .tag {
+    font: 700 13px var(--mono); color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 5px; padding: 2px 8px;
+  }
+  .concept-head h2 { margin: 0; font-size: 18px; font-weight: 700; }
+  .concept-head p { margin: 0; color: var(--muted); flex-basis: 100%; max-width: 88ch; }
+  .stage {
+    padding: 26px 20px 18px; overflow-x: auto;
+    display: flex; gap: 26px; align-items: flex-end;
+    background: radial-gradient(120% 130% at 50% -10%, #18222e 0%, var(--stage-bg, #0d1117) 62%);
+    border-top: 1px solid var(--border);
+    transition: background 0.2s;
+  }
+  .stage.light { --stage-bg: #dfe5ea; background: radial-gradient(120% 130% at 50% -10%, #eef1f4 0%, #dfe5ea 62%); }
+  .boxCell { display: flex; flex-direction: column; align-items: center; gap: 10px; flex: 0 0 auto; }
+  .boxStage { position: relative; }
+  .box3d { position: absolute; transform-style: preserve-3d; transform: rotateX(-24deg) rotateY(-36deg); }
+  .box3d canvas { position: absolute; left: 50%; top: 50%; backface-visibility: hidden; }
+  .boxShadow {
+    position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+    height: 14px; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(0,0,0,0.42), transparent 72%);
+  }
+  .stage.light .boxShadow { background: radial-gradient(closest-side, rgba(30,40,50,0.30), transparent 72%); }
+  .boxLabel { font: 600 11.5px var(--mono); color: var(--muted); white-space: nowrap; }
+  .stage.light .boxLabel { color: #5f6b78; }
+  .detail {
+    border-top: 1px solid var(--border); padding: 14px 20px 18px;
+    display: flex; gap: 28px; align-items: flex-end; flex-wrap: wrap;
+  }
+  .detail figure { margin: 0; display: flex; flex-direction: column; gap: 7px; }
+  .detail canvas { border-radius: 3px; display: block; max-width: 100%; }
+  .detail figcaption { font: 600 11.5px var(--mono); color: var(--muted); }
+  footer.page {
+    max-width: 1180px; margin: 0 auto; padding: 28px 24px 60px; color: var(--muted); font-size: 13.5px;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .box3d { transition: transform 0.25s ease; }
+    .boxStage:hover .box3d { transform: rotateX(-24deg) rotateY(-24deg); }
+  }
+</style>
+
+<header class="page">
+  <h1>Modern theme — box texture concepts</h1>
+  <p>Five replacements for the current dev-texture crates. Every concept uses the item's
+     <strong>priority color as the primary color of the box</strong>, draws all six faces from the same
+     panel (no more orange sides / gray tops), and sizes every element from the face dimensions, so
+     nothing overlaps from the 1&nbsp;SCU cube up to the 8-cell-long faces of a 32&nbsp;SCU crate.
+     Hover a box to rotate it. Reply with a concept letter to have it implemented in the viewer.</p>
+</header>
+
+<div class="controls">
+  <div class="controls-inner">
+    <div class="ctl">
+      <label id="lbl-colors">Priority colors</label>
+      <div class="seg" role="group" aria-labelledby="lbl-colors" id="colorMode">
+        <button data-mode="mixed" class="on">Mixed</button>
+      </div>
+      <div class="swatches" id="swatches" aria-label="Single priority color"></div>
+    </div>
+    <div class="ctl">
+      <label id="lbl-bg">Scene background</label>
+      <div class="seg" role="group" aria-labelledby="lbl-bg" id="bgMode">
+        <button data-bg="dark" class="on">Default (dark)</button>
+        <button data-bg="light">Origin (light)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<main id="main"></main>
+
+<footer class="page">
+  Textures are drawn with the same canvas-texture pipeline <code>viewer.html</code> uses
+  (<code>modernFaceTex</code>), at the real per-cell resolution, so what you see here is what the
+  3D viewer will render. The 8-Bit theme is unaffected.
+</footer>
+
+<script>
+'use strict';
+
+// ── Shared data ──────────────────────────────────────────────────────────────
+const CELL = 64;   // texture pixels per SCU cell (viewer uses a similar density)
+const S = 26;      // display pixels per SCU cell in the 3D previews
+
+const SIZES = [
+  { scu: 1,  dims: [1, 1, 1] },
+  { scu: 2,  dims: [2, 1, 1] },
+  { scu: 4,  dims: [2, 2, 1] },
+  { scu: 8,  dims: [2, 2, 2] },
+  { scu: 16, dims: [2, 4, 2] },
+  { scu: 24, dims: [2, 6, 2] },
+  { scu: 32, dims: [2, 8, 2] },
+];
+
+// Default priority colors from viewer.html (P1..P5)
+const PRIORITY_COLORS = ['#0072B2', '#E69F00', '#009E73', '#D55E00', '#CC79A7'];
+const FONT = '"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+
+// ── Color helpers (mirrors viewer.html) ─────────────────────────────────────
+function hexToRgb(hex) {
+  const raw = String(hex || '#cccccc').replace('#', '');
+  return { r: parseInt(raw.slice(0, 2), 16), g: parseInt(raw.slice(2, 4), 16), b: parseInt(raw.slice(4, 6), 16) };
+}
+function rgbToHex({ r, g, b }) {
+  const c = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+  return `#${c(r)}${c(g)}${c(b)}`;
+}
+function mixHex(a, b, t) {
+  const A = hexToRgb(a), B = hexToRgb(b);
+  return rgbToHex({ r: A.r + (B.r - A.r) * t, g: A.g + (B.g - A.g) * t, b: A.b + (B.b - A.b) * t });
+}
+function shade(hex, t) { return t >= 0 ? mixHex(hex, '#ffffff', t) : mixHex(hex, '#000000', -t); }
+function luma(hex) { const { r, g, b } = hexToRgb(hex); return 0.299 * r + 0.587 * g + 0.114 * b; }
+function inkOn(hex) {
+  return luma(hex) > 150
+    ? { main: 'rgba(16,18,22,0.85)', soft: 'rgba(16,18,22,0.60)' }
+    : { main: 'rgba(248,246,238,0.92)', soft: 'rgba(248,246,238,0.62)' };
+}
+// Shrink a font size until `text` fits maxW.
+function fitFont(g, text, weight, px, maxW) {
+  let fs = Math.round(px);
+  g.font = `${weight} ${fs}px ${FONT}`;
+  const w = g.measureText(text).width;
+  if (w > maxW) fs = Math.floor(fs * maxW / w);
+  return Math.max(9, fs);
+}
+function rounded(g, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+
+// ── Concept A — Flat Freight ─────────────────────────────────────────────────
+function drawFlat(g, w, h, scu, hex) {
+  const m = Math.min(w, h);
+  const grad = g.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, shade(hex, 0.07));
+  grad.addColorStop(1, shade(hex, -0.08));
+  g.fillStyle = grad;
+  g.fillRect(0, 0, w, h);
+
+  const edge = Math.max(2, Math.round(m * 0.03));
+  g.strokeStyle = shade(hex, -0.5);
+  g.lineWidth = edge;
+  g.strokeRect(edge / 2, edge / 2, w - edge, h - edge);
+
+  const pad = Math.max(5, Math.round(m * 0.08));
+  g.strokeStyle = shade(hex, -0.34);
+  g.lineWidth = Math.max(2, Math.round(m * 0.02));
+  g.strokeRect(pad, pad, w - pad * 2, h - pad * 2);
+
+  if (m >= 110) {
+    const rv = Math.max(3, Math.round(m * 0.03));
+    g.fillStyle = shade(hex, -0.42);
+    for (const [rx, ry] of [[pad * 1.7, pad * 1.7], [w - pad * 1.7, pad * 1.7],
+                            [pad * 1.7, h - pad * 1.7], [w - pad * 1.7, h - pad * 1.7]]) {
+      g.fillRect(Math.round(rx - rv / 2), Math.round(ry - rv / 2), rv, rv);
+    }
+  }
+
+  const ink = inkOn(hex);
+  const num = String(scu);
+  const fs = fitFont(g, num, 800, Math.min(h * 0.44, m * 0.6), w - pad * 4);
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = `800 ${fs}px ${FONT}`;
+  g.fillStyle = ink.main;
+  g.fillText(num, w / 2, h / 2 - fs * 0.14);
+  g.font = `700 ${Math.max(8, Math.round(fs * 0.28))}px ${FONT}`;
+  g.fillStyle = ink.soft;
+  g.fillText('SCU', w / 2, h / 2 + fs * 0.48);
+}
+
+// ── Concept B — Ribbed Container ─────────────────────────────────────────────
+function drawRibbed(g, w, h, scu, hex) {
+  const m = Math.min(w, h);
+  g.fillStyle = shade(hex, -0.02);
+  g.fillRect(0, 0, w, h);
+
+  const step = Math.round(CELL / 3);
+  for (let x = step * 0.5; x < w; x += step) {
+    g.fillStyle = shade(hex, -0.15);
+    g.fillRect(Math.round(x), 0, Math.round(step * 0.42), h);
+    g.fillStyle = shade(hex, 0.09);
+    g.fillRect(Math.round(x) - 2, 0, 2, h);
+  }
+
+  const rail = Math.max(5, Math.round(m * 0.075));
+  g.fillStyle = shade(hex, -0.34);
+  g.fillRect(0, 0, w, rail);
+  g.fillRect(0, h - rail, w, rail);
+  g.fillStyle = shade(hex, 0.12);
+  g.fillRect(0, rail, w, 2);
+
+  const label = `${scu} SCU`;
+  const ph = Math.max(22, Math.min(92, Math.round(m * 0.34)));
+  const pw = Math.min(w * 0.8, Math.max(ph * 2.1, m * 0.62));
+  const fs = fitFont(g, label, 800, ph * 0.52, pw * 0.84);
+  const px0 = Math.round((w - pw) / 2), py0 = Math.round((h - ph) / 2);
+  rounded(g, px0, py0, Math.round(pw), ph, Math.max(3, ph * 0.14));
+  g.fillStyle = 'rgba(13,15,17,0.82)';
+  g.fill();
+  g.strokeStyle = shade(hex, 0.28);
+  g.lineWidth = 2;
+  g.stroke();
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = `800 ${fs}px ${FONT}`;
+  g.fillStyle = '#f2efe6';
+  g.fillText(label, w / 2, py0 + ph * 0.54);
+}
+
+// ── Concept C — Panel Grid ───────────────────────────────────────────────────
+function drawPanels(g, w, h, scu, hex, u, v) {
+  const m = Math.min(w, h);
+  const grad = g.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, shade(hex, 0.05));
+  grad.addColorStop(1, shade(hex, -0.07));
+  g.fillStyle = grad;
+  g.fillRect(0, 0, w, h);
+
+  // Per-cell bevel highlight, then seams on every SCU cell boundary.
+  for (let i = 0; i < u; i++) {
+    for (let j = 0; j < v; j++) {
+      g.fillStyle = shade(hex, 0.08);
+      g.fillRect(i * CELL + 3, j * CELL + 3, CELL - 6, 2);
+      g.fillStyle = shade(hex, -0.10);
+      g.fillRect(i * CELL + 3, (j + 1) * CELL - 5, CELL - 6, 2);
+    }
+  }
+  g.fillStyle = shade(hex, -0.30);
+  for (let i = 1; i < u; i++) g.fillRect(i * CELL - 1, 0, 3, h);
+  for (let j = 1; j < v; j++) g.fillRect(0, j * CELL - 1, w, 3);
+
+  const edge = Math.max(3, Math.round(m * 0.035));
+  g.strokeStyle = shade(hex, -0.42);
+  g.lineWidth = edge;
+  g.strokeRect(edge / 2, edge / 2, w - edge, h - edge);
+
+  const ink = inkOn(hex);
+  const num = String(scu);
+  const fs = fitFont(g, num, 800, Math.min(h * 0.4, m * 0.52), w * 0.7);
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = `800 ${fs}px ${FONT}`;
+  g.lineWidth = Math.max(4, Math.round(fs * 0.16));
+  g.lineJoin = 'round';
+  g.strokeStyle = shade(hex, 0.02);
+  g.strokeText(num, w / 2, h / 2 - fs * 0.1);
+  g.fillStyle = ink.main;
+  g.fillText(num, w / 2, h / 2 - fs * 0.1);
+  g.font = `700 ${Math.max(8, Math.round(fs * 0.26))}px ${FONT}`;
+  g.strokeStyle = shade(hex, 0.02);
+  g.lineWidth = 3;
+  g.strokeText('SCU', w / 2, h / 2 + fs * 0.5);
+  g.fillStyle = ink.soft;
+  g.fillText('SCU', w / 2, h / 2 + fs * 0.5);
+}
+
+// ── Concept D — Pip Count (no text on the face body) ────────────────────────
+const PIP_GRIDS = { 1: [1, 1], 2: [2, 1], 4: [2, 2], 8: [4, 2], 16: [4, 4], 24: [6, 4], 32: [8, 4] };
+function drawPips(g, w, h, scu, hex) {
+  const m = Math.min(w, h);
+  const grad = g.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, shade(hex, 0.06));
+  grad.addColorStop(1, shade(hex, -0.07));
+  g.fillStyle = grad;
+  g.fillRect(0, 0, w, h);
+
+  const edge = Math.max(2, Math.round(m * 0.03));
+  g.strokeStyle = shade(hex, -0.46);
+  g.lineWidth = edge;
+  g.strokeRect(edge / 2, edge / 2, w - edge, h - edge);
+  const pad = Math.max(5, Math.round(m * 0.08));
+  g.strokeStyle = shade(hex, -0.30);
+  g.lineWidth = 2;
+  g.strokeRect(pad, pad, w - pad * 2, h - pad * 2);
+
+  let [cols, rows] = PIP_GRIDS[scu] || [3, 3];
+  if (h > w * 1.3 && cols > rows) [cols, rows] = [rows, cols];  // match face orientation
+  const gapK = 0.5;
+  const p = Math.max(4, Math.floor(Math.min(
+    (w * 0.64) / (cols + (cols - 1) * gapK),
+    (h * 0.56) / (rows + (rows - 1) * gapK),
+    m * 0.16,
+  )));
+  const gap = Math.round(p * gapK);
+  const gw = cols * p + (cols - 1) * gap, gh = rows * p + (rows - 1) * gap;
+  const x0 = Math.round((w - gw) / 2), y0 = Math.round((h - gh) / 2);
+  const ink = inkOn(hex);
+  g.fillStyle = ink.main;
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      rounded(g, x0 + i * (p + gap), y0 + j * (p + gap), p, p, Math.max(1.5, p * 0.2));
+      g.fill();
+    }
+  }
+
+  if (m >= 96) {
+    const chip = Math.max(18, Math.min(36, Math.round(m * 0.2)));
+    const cx = w - pad - chip, cy = h - pad - chip;
+    rounded(g, cx, cy, chip, chip, chip * 0.2);
+    g.fillStyle = 'rgba(13,15,17,0.78)';
+    g.fill();
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = `800 ${Math.round(chip * (String(scu).length > 1 ? 0.44 : 0.55))}px ${FONT}`;
+    g.fillStyle = '#f2efe6';
+    g.fillText(String(scu), cx + chip / 2, cy + chip * 0.55);
+  }
+}
+
+// ── Concept E — Chamfer Plate ────────────────────────────────────────────────
+function drawChamfer(g, w, h, scu, hex) {
+  const m = Math.min(w, h);
+  g.fillStyle = shade(hex, -0.04);
+  g.fillRect(0, 0, w, h);
+  const grad = g.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, 'rgba(255,255,255,0.10)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.14)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, w, h);
+
+  const rim = Math.max(6, Math.round(m * 0.10));
+  const cut = Math.max(8, Math.round(m * 0.17));
+  const x0 = rim, y0 = rim, x1 = w - rim, y1 = h - rim;
+  g.beginPath();
+  g.moveTo(x0 + cut, y0);
+  g.lineTo(x1 - cut, y0);
+  g.lineTo(x1, y0 + cut);
+  g.lineTo(x1, y1 - cut);
+  g.lineTo(x1 - cut, y1);
+  g.lineTo(x0 + cut, y1);
+  g.lineTo(x0, y1 - cut);
+  g.lineTo(x0, y0 + cut);
+  g.closePath();
+  g.fillStyle = mixHex(hex, '#0e1013', 0.72);
+  g.fill();
+  g.strokeStyle = shade(hex, 0.22);
+  g.lineWidth = 2;
+  g.stroke();
+
+  const edge = Math.max(2, Math.round(m * 0.028));
+  g.strokeStyle = shade(hex, -0.45);
+  g.lineWidth = edge;
+  g.strokeRect(edge / 2, edge / 2, w - edge, h - edge);
+
+  const num = String(scu);
+  const fs = fitFont(g, num, 800, Math.min(h * 0.4, m * 0.5), w - (rim + cut) * 2);
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = `800 ${fs}px ${FONT}`;
+  g.fillStyle = mixHex(hex, '#ffffff', 0.82);
+  g.fillText(num, w / 2, h / 2 - fs * 0.12);
+  g.font = `700 ${Math.max(8, Math.round(fs * 0.27))}px ${FONT}`;
+  g.fillStyle = mixHex(hex, '#ffffff', 0.5);
+  g.fillText('SCU', w / 2, h / 2 + fs * 0.5);
+}
+
+// ── Concepts registry ────────────────────────────────────────────────────────
+const CONCEPTS = [
+  {
+    tag: 'A', name: 'Flat Freight', draw: drawFlat,
+    blurb: 'Solid priority-color crate with a subtle vertical falloff, a darker inset frame, corner ' +
+           'rivets on larger faces, and one centered SCU numeral. The numeral is the only text and is ' +
+           'sized from the face, so it can never collide with anything.',
+  },
+  {
+    tag: 'B', name: 'Ribbed Container', draw: drawRibbed,
+    blurb: 'Shipping-container corrugation in darker shades of the priority color, with top/bottom rails ' +
+           'and a single dark nameplate carrying “N SCU”. The plate scales with the face and the text ' +
+           'shrinks to fit the plate — nothing else competes with it.',
+  },
+  {
+    tag: 'C', name: 'Panel Grid', draw: drawPanels,
+    blurb: 'Welded panel seams on every 1-SCU cell boundary, so the texture itself shows how many cells ' +
+           'the face spans (a 32 SCU side reads as 8×2 panels). A haloed numeral sits on top and stays ' +
+           'legible across the seams.',
+  },
+  {
+    tag: 'D', name: 'Pip Count', draw: drawPips,
+    blurb: 'No words on the face at all: a pip grid encodes the SCU count (1, 2, 2×2, 4×2, 4×4, 6×4, 8×4) ' +
+           'and reorients to match tall or wide faces. Larger faces get a small corner chip with the exact ' +
+           'number for quick reading.',
+  },
+  {
+    tag: 'E', name: 'Chamfer Plate', draw: drawChamfer,
+    blurb: 'Sci-fi take: a thick priority-color rim around a dark, hue-tinted chamfered plate with a ' +
+           'light tinted numeral. Highest contrast of the five — the numeral pops at long camera ' +
+           'distances — while the rim keeps the priority color dominant.',
+  },
+];
+
+// ── Rendering ────────────────────────────────────────────────────────────────
+let colorMode = 'mixed';   // 'mixed' | 0..4 (index into PRIORITY_COLORS)
+function colorForIndex(i) { return colorMode === 'mixed' ? PRIORITY_COLORS[i % PRIORITY_COLORS.length] : PRIORITY_COLORS[colorMode]; }
+
+function faceCanvas(concept, u, v, scu, hex, dispW, dispH) {
+  const c = document.createElement('canvas');
+  c.width = u * CELL;
+  c.height = v * CELL;
+  concept.draw(c.getContext('2d'), c.width, c.height, scu, hex, u, v);
+  c.style.width = dispW + 'px';
+  c.style.height = dispH + 'px';
+  return c;
+}
+
+function buildBox(concept, size, hex) {
+  const sorted = [...size.dims].sort((a, b) => b - a);
+  const [D, W, H] = sorted;      // long axis into depth, like crates in the viewer
+  const cos = Math.cos, sin = Math.sin, rY = 36 * Math.PI / 180, rX = 24 * Math.PI / 180;
+  const projW = (W * cos(rY) + D * sin(rY)) * S + 16;
+  const projH = H * S * cos(rX) + (W * sin(rY) + D * cos(rY)) * S * sin(rX) + 22;
+
+  const cell = document.createElement('div');
+  cell.className = 'boxCell';
+  const stage = document.createElement('div');
+  stage.className = 'boxStage';
+  stage.style.width = Math.ceil(projW) + 'px';
+  stage.style.height = Math.ceil(projH) + 'px';
+
+  const shadow = document.createElement('div');
+  shadow.className = 'boxShadow';
+  shadow.style.width = Math.round(projW * 0.82) + 'px';
+  stage.appendChild(shadow);
+
+  const box = document.createElement('div');
+  box.className = 'box3d';
+  box.style.width = W * S + 'px';
+  box.style.height = H * S + 'px';
+  box.style.left = Math.round((projW - W * S) / 2) + 'px';
+  box.style.top = Math.round((projH - H * S) / 2) + 'px';
+
+  const faces = [
+    { u: W, v: H, push: D, pre: '',                dim: 0.88 },  // front
+    { u: D, v: H, push: W, pre: 'rotateY(90deg) ', dim: 0.72 },  // right
+    { u: W, v: D, push: H, pre: 'rotateX(90deg) ', dim: 1.0 },   // top
+  ];
+  for (const f of faces) {
+    const c = faceCanvas(concept, f.u, f.v, size.scu, hex, f.u * S, f.v * S);
+    c.style.transform = `translate(-50%,-50%) ${f.pre}translateZ(${f.push * S / 2}px)`;
+    c.style.filter = `brightness(${f.dim})`;
+    box.appendChild(c);
+  }
+  stage.appendChild(box);
+  cell.appendChild(stage);
+
+  const label = document.createElement('div');
+  label.className = 'boxLabel';
+  label.textContent = `${size.scu} SCU · ${size.dims.join('×')}`;
+  cell.appendChild(label);
+  return cell;
+}
+
+function buildConceptSection(concept) {
+  const sec = document.createElement('section');
+  sec.className = 'concept';
+
+  const head = document.createElement('div');
+  head.className = 'concept-head';
+  head.innerHTML = `<span class="tag">Concept ${concept.tag}</span><h2>${concept.name}</h2><p>${concept.blurb}</p>`;
+  sec.appendChild(head);
+
+  const stage = document.createElement('div');
+  stage.className = 'stage' + (bgMode === 'light' ? ' light' : '');
+  SIZES.forEach((size, i) => stage.appendChild(buildBox(concept, size, colorForIndex(i))));
+  sec.appendChild(stage);
+
+  const detail = document.createElement('div');
+  detail.className = 'detail';
+  const flats = [
+    { u: 1, v: 1, scu: 1,  colorIdx: 0, cap: '1 SCU face (smallest, 1×1 cell)', px: 88 },
+    { u: 8, v: 2, scu: 32, colorIdx: 6, cap: '32 SCU long face (worst case, 8×2 cells)', px: 44 },
+  ];
+  for (const f of flats) {
+    const fig = document.createElement('figure');
+    fig.appendChild(faceCanvas(concept, f.u, f.v, f.scu, colorForIndex(f.colorIdx), f.u * f.px, f.v * f.px));
+    const cap = document.createElement('figcaption');
+    cap.textContent = f.cap;
+    fig.appendChild(cap);
+    detail.appendChild(fig);
+  }
+  sec.appendChild(detail);
+  return sec;
+}
+
+let bgMode = 'dark';
+function renderAll() {
+  const main = document.getElementById('main');
+  main.textContent = '';
+  for (const concept of CONCEPTS) main.appendChild(buildConceptSection(concept));
+}
+
+// ── Controls ─────────────────────────────────────────────────────────────────
+const swatchesEl = document.getElementById('swatches');
+const mixedBtn = document.querySelector('#colorMode button');
+PRIORITY_COLORS.forEach((hex, i) => {
+  const b = document.createElement('button');
+  b.style.background = hex;
+  b.title = `All boxes as priority ${i + 1}`;
+  b.setAttribute('aria-label', b.title);
+  b.addEventListener('click', () => {
+    colorMode = i;
+    mixedBtn.classList.remove('on');
+    for (const s of swatchesEl.children) s.classList.remove('on');
+    b.classList.add('on');
+    renderAll();
+  });
+  swatchesEl.appendChild(b);
+});
+mixedBtn.addEventListener('click', () => {
+  colorMode = 'mixed';
+  mixedBtn.classList.add('on');
+  for (const s of swatchesEl.children) s.classList.remove('on');
+  renderAll();
+});
+document.querySelectorAll('#bgMode button').forEach(b => {
+  b.addEventListener('click', () => {
+    bgMode = b.dataset.bg;
+    document.querySelectorAll('#bgMode button').forEach(x => x.classList.toggle('on', x === b));
+    document.querySelectorAll('.stage').forEach(s => s.classList.toggle('light', bgMode === 'light'));
+  });
+});
+
+renderAll();
+</script>
+</body>
+</html>
