@@ -152,6 +152,7 @@
   <label title="Show 1-unit floor grid lines for spatial reference"><input type="checkbox" id="gridToggle" onchange="toggleGrid()"> Grid lines</label>
   <span class="sep"></span>
   <label title="Rendering style">Style <select id="styleSelect" onchange="setViewerStyle(this.value)"></select></label>
+  <label title="Crate texture design (Modern style only)">Boxes <select id="boxStyleSelect" onchange="setViewerBoxStyle(this.value)"></select></label>
   <label title="Color palette inspired by ship manufacturers' in-game UI">Palette <select id="paletteSelect" onchange="setViewerPalette(this.value)"></select></label>
 </div>
 
@@ -176,6 +177,19 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const STYLES = {
   modern: { label: 'Modern', pixel: false, renderScale: 1, amb: 0.55, key: 0.9, fill: 0.35 },
   retro:  { label: '8-Bit',  pixel: true,  renderScale: 1, amb: 0.85, key: 0.45, fill: 0.0 },
+};
+
+// Crate texture designs for the Modern style. Every design paints all six
+// faces from the same panel with the item's priority color as the primary
+// color, and sizes labels from the face so nothing overlaps on any SCU size.
+// `draw` properties are attached next to the drawing code below.
+const BOX_STYLES = {
+  flat:    { label: 'Flat Freight' },
+  ribbed:  { label: 'Ribbed Container' },
+  panels:  { label: 'Panel Grid' },
+  pips:    { label: 'Pip Count' },
+  chamfer: { label: 'Chamfer Plate' },
+  dev:     { label: 'Dev Kit' },
 };
 
 const PALETTES = {
@@ -267,9 +281,11 @@ const DEFAULT_PRIORITY_COLORS = PRIORITY_COLOR_OPTIONS.slice(0, 5).map(c => c.va
 
 let styleKey = 'modern';
 let paletteKey = 'default';
+let boxStyleKey = 'flat';
 try {
   if (STYLES[localStorage.getItem('cargoViewerStyle')]) styleKey = localStorage.getItem('cargoViewerStyle');
   if (PALETTES[localStorage.getItem('cargoViewerPalette')]) paletteKey = localStorage.getItem('cargoViewerPalette');
+  if (BOX_STYLES[localStorage.getItem('cargoViewerBoxStyle')]) boxStyleKey = localStorage.getItem('cargoViewerBoxStyle');
 } catch (e) { /* storage unavailable */ }
 let STYLE = STYLES[styleKey];
 let PAL = PALETTES[paletteKey];
@@ -1314,18 +1330,289 @@ function drawDevPanel(g, w, h, volume, priorityHex, faceKind) {
   g.fillRect(w - corner, h - corner, corner, corner);
 }
 
+// ──── Modern crate designs (BOX_STYLES) ──────────────────────────────────────
+// All designs share the same contract: draw(g, w, h, volume, hex, u, v,
+// faceKind). Labels are fitted to the face, so they hold up from the 1 SCU
+// cube to the 8x2-cell long faces of a 32 SCU crate.
+
+function shadeHex(hex, t) {
+  return t >= 0 ? mixHex(hex, '#ffffff', t) : mixHex(hex, '#000000', -t);
+}
+
+function boxInk(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 150
+    ? { main: 'rgba(16,18,22,0.85)', soft: 'rgba(16,18,22,0.60)' }
+    : { main: 'rgba(248,246,238,0.92)', soft: 'rgba(248,246,238,0.62)' };
+}
+
+const BOX_FONT = '"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+
+// Largest font size <= px whose rendered `text` fits maxW.
+function fitBoxFont(g, text, weight, px, maxW) {
+  let fs = Math.round(px);
+  g.font = `${weight} ${fs}px ${BOX_FONT}`;
+  const tw = g.measureText(text).width;
+  if (tw > maxW) fs = Math.floor(fs * maxW / tw);
+  return Math.max(9, fs);
+}
+
+function boxRoundRect(g, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+
+function drawFlatBox(g, w, h, volume, hex) {
+  const m = Math.min(w, h);
+  const grad = g.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, shadeHex(hex, 0.07));
+  grad.addColorStop(1, shadeHex(hex, -0.08));
+  g.fillStyle = grad;
+  g.fillRect(0, 0, w, h);
+
+  const edge = Math.max(2, Math.round(m * 0.03));
+  g.strokeStyle = shadeHex(hex, -0.5);
+  g.lineWidth = edge;
+  g.strokeRect(edge / 2, edge / 2, w - edge, h - edge);
+
+  const pad = Math.max(5, Math.round(m * 0.08));
+  g.strokeStyle = shadeHex(hex, -0.34);
+  g.lineWidth = Math.max(2, Math.round(m * 0.02));
+  g.strokeRect(pad, pad, w - pad * 2, h - pad * 2);
+
+  if (m >= 110) {
+    const rv = Math.max(3, Math.round(m * 0.03));
+    g.fillStyle = shadeHex(hex, -0.42);
+    for (const [rx, ry] of [[pad * 1.7, pad * 1.7], [w - pad * 1.7, pad * 1.7],
+                            [pad * 1.7, h - pad * 1.7], [w - pad * 1.7, h - pad * 1.7]]) {
+      g.fillRect(Math.round(rx - rv / 2), Math.round(ry - rv / 2), rv, rv);
+    }
+  }
+
+  const ink = boxInk(hex);
+  const num = String(volume);
+  const fs = fitBoxFont(g, num, 800, Math.min(h * 0.44, m * 0.6), w - pad * 4);
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = `800 ${fs}px ${BOX_FONT}`;
+  g.fillStyle = ink.main;
+  g.fillText(num, w / 2, h / 2 - fs * 0.14);
+  g.font = `700 ${Math.max(8, Math.round(fs * 0.28))}px ${BOX_FONT}`;
+  g.fillStyle = ink.soft;
+  g.fillText('SCU', w / 2, h / 2 + fs * 0.48);
+}
+
+function drawRibbedBox(g, w, h, volume, hex, u, v) {
+  const m = Math.min(w, h);
+  const cell = Math.min(w / u, h / v);
+  g.fillStyle = shadeHex(hex, -0.02);
+  g.fillRect(0, 0, w, h);
+
+  const step = Math.max(14, Math.round(cell / 3));
+  for (let x = step * 0.5; x < w; x += step) {
+    g.fillStyle = shadeHex(hex, -0.15);
+    g.fillRect(Math.round(x), 0, Math.round(step * 0.42), h);
+    g.fillStyle = shadeHex(hex, 0.09);
+    g.fillRect(Math.round(x) - 2, 0, 2, h);
+  }
+
+  const rail = Math.max(5, Math.round(m * 0.075));
+  g.fillStyle = shadeHex(hex, -0.34);
+  g.fillRect(0, 0, w, rail);
+  g.fillRect(0, h - rail, w, rail);
+  g.fillStyle = shadeHex(hex, 0.12);
+  g.fillRect(0, rail, w, 2);
+
+  const label = `${volume} SCU`;
+  const ph = Math.max(22, Math.min(92, Math.round(m * 0.34)));
+  const pw = Math.min(w * 0.8, Math.max(ph * 2.1, m * 0.62));
+  const fs = fitBoxFont(g, label, 800, ph * 0.52, pw * 0.84);
+  const px0 = Math.round((w - pw) / 2), py0 = Math.round((h - ph) / 2);
+  boxRoundRect(g, px0, py0, Math.round(pw), ph, Math.max(3, ph * 0.14));
+  g.fillStyle = 'rgba(13,15,17,0.82)';
+  g.fill();
+  g.strokeStyle = shadeHex(hex, 0.28);
+  g.lineWidth = 2;
+  g.stroke();
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = `800 ${fs}px ${BOX_FONT}`;
+  g.fillStyle = '#f2efe6';
+  g.fillText(label, w / 2, py0 + ph * 0.54);
+}
+
+function drawPanelGridBox(g, w, h, volume, hex, u, v) {
+  const m = Math.min(w, h);
+  const cw = w / u, ch = h / v;
+  const grad = g.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, shadeHex(hex, 0.05));
+  grad.addColorStop(1, shadeHex(hex, -0.07));
+  g.fillStyle = grad;
+  g.fillRect(0, 0, w, h);
+
+  // Per-cell bevel highlight, then seams on every SCU cell boundary — the
+  // texture itself shows how many cells the face spans.
+  for (let i = 0; i < u; i++) {
+    for (let j = 0; j < v; j++) {
+      g.fillStyle = shadeHex(hex, 0.08);
+      g.fillRect(Math.round(i * cw) + 3, Math.round(j * ch) + 3, Math.round(cw) - 6, 2);
+      g.fillStyle = shadeHex(hex, -0.10);
+      g.fillRect(Math.round(i * cw) + 3, Math.round((j + 1) * ch) - 5, Math.round(cw) - 6, 2);
+    }
+  }
+  g.fillStyle = shadeHex(hex, -0.30);
+  for (let i = 1; i < u; i++) g.fillRect(Math.round(i * cw) - 1, 0, 3, h);
+  for (let j = 1; j < v; j++) g.fillRect(0, Math.round(j * ch) - 1, w, 3);
+
+  const edge = Math.max(3, Math.round(m * 0.035));
+  g.strokeStyle = shadeHex(hex, -0.42);
+  g.lineWidth = edge;
+  g.strokeRect(edge / 2, edge / 2, w - edge, h - edge);
+
+  const ink = boxInk(hex);
+  const num = String(volume);
+  const fs = fitBoxFont(g, num, 800, Math.min(h * 0.4, m * 0.52), w * 0.7);
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = `800 ${fs}px ${BOX_FONT}`;
+  g.lineWidth = Math.max(4, Math.round(fs * 0.16));
+  g.lineJoin = 'round';
+  g.strokeStyle = shadeHex(hex, 0.02);
+  g.strokeText(num, w / 2, h / 2 - fs * 0.1);
+  g.fillStyle = ink.main;
+  g.fillText(num, w / 2, h / 2 - fs * 0.1);
+  g.font = `700 ${Math.max(8, Math.round(fs * 0.26))}px ${BOX_FONT}`;
+  g.strokeStyle = shadeHex(hex, 0.02);
+  g.lineWidth = 3;
+  g.strokeText('SCU', w / 2, h / 2 + fs * 0.5);
+  g.fillStyle = ink.soft;
+  g.fillText('SCU', w / 2, h / 2 + fs * 0.5);
+}
+
+const PIP_GRIDS = { 1: [1, 1], 2: [2, 1], 4: [2, 2], 8: [4, 2], 16: [4, 4], 24: [6, 4], 32: [8, 4] };
+
+function drawPipCountBox(g, w, h, volume, hex) {
+  const m = Math.min(w, h);
+  const grad = g.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, shadeHex(hex, 0.06));
+  grad.addColorStop(1, shadeHex(hex, -0.07));
+  g.fillStyle = grad;
+  g.fillRect(0, 0, w, h);
+
+  const edge = Math.max(2, Math.round(m * 0.03));
+  g.strokeStyle = shadeHex(hex, -0.46);
+  g.lineWidth = edge;
+  g.strokeRect(edge / 2, edge / 2, w - edge, h - edge);
+  const pad = Math.max(5, Math.round(m * 0.08));
+  g.strokeStyle = shadeHex(hex, -0.30);
+  g.lineWidth = 2;
+  g.strokeRect(pad, pad, w - pad * 2, h - pad * 2);
+
+  let [cols, rows] = PIP_GRIDS[volume] || [3, 3];
+  if (h > w * 1.3 && cols > rows) [cols, rows] = [rows, cols];  // match face orientation
+  const gapK = 0.5;
+  const p = Math.max(4, Math.floor(Math.min(
+    (w * 0.64) / (cols + (cols - 1) * gapK),
+    (h * 0.56) / (rows + (rows - 1) * gapK),
+    m * 0.16,
+  )));
+  const gap = Math.round(p * gapK);
+  const gw = cols * p + (cols - 1) * gap, gh = rows * p + (rows - 1) * gap;
+  const x0 = Math.round((w - gw) / 2), y0 = Math.round((h - gh) / 2);
+  g.fillStyle = boxInk(hex).main;
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      boxRoundRect(g, x0 + i * (p + gap), y0 + j * (p + gap), p, p, Math.max(1.5, p * 0.2));
+      g.fill();
+    }
+  }
+
+  if (m >= 96) {
+    const chip = Math.max(18, Math.min(36, Math.round(m * 0.2)));
+    const cx = w - pad - chip, cy = h - pad - chip;
+    boxRoundRect(g, cx, cy, chip, chip, chip * 0.2);
+    g.fillStyle = 'rgba(13,15,17,0.78)';
+    g.fill();
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = `800 ${Math.round(chip * (String(volume).length > 1 ? 0.44 : 0.55))}px ${BOX_FONT}`;
+    g.fillStyle = '#f2efe6';
+    g.fillText(String(volume), cx + chip / 2, cy + chip * 0.55);
+  }
+}
+
+function drawChamferBox(g, w, h, volume, hex) {
+  const m = Math.min(w, h);
+  g.fillStyle = shadeHex(hex, -0.04);
+  g.fillRect(0, 0, w, h);
+  const grad = g.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, 'rgba(255,255,255,0.10)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.14)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, w, h);
+
+  const rim = Math.max(6, Math.round(m * 0.10));
+  const cut = Math.max(8, Math.round(m * 0.17));
+  const x0 = rim, y0 = rim, x1 = w - rim, y1 = h - rim;
+  g.beginPath();
+  g.moveTo(x0 + cut, y0);
+  g.lineTo(x1 - cut, y0);
+  g.lineTo(x1, y0 + cut);
+  g.lineTo(x1, y1 - cut);
+  g.lineTo(x1 - cut, y1);
+  g.lineTo(x0 + cut, y1);
+  g.lineTo(x0, y1 - cut);
+  g.lineTo(x0, y0 + cut);
+  g.closePath();
+  g.fillStyle = mixHex(hex, '#0e1013', 0.72);
+  g.fill();
+  g.strokeStyle = shadeHex(hex, 0.22);
+  g.lineWidth = 2;
+  g.stroke();
+
+  const edge = Math.max(2, Math.round(m * 0.028));
+  g.strokeStyle = shadeHex(hex, -0.45);
+  g.lineWidth = edge;
+  g.strokeRect(edge / 2, edge / 2, w - edge, h - edge);
+
+  const num = String(volume);
+  const fs = fitBoxFont(g, num, 800, Math.min(h * 0.4, m * 0.5), w - (rim + cut) * 2);
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = `800 ${fs}px ${BOX_FONT}`;
+  g.fillStyle = mixHex(hex, '#ffffff', 0.82);
+  g.fillText(num, w / 2, h / 2 - fs * 0.12);
+  g.font = `700 ${Math.max(8, Math.round(fs * 0.27))}px ${BOX_FONT}`;
+  g.fillStyle = mixHex(hex, '#ffffff', 0.5);
+  g.fillText('SCU', w / 2, h / 2 + fs * 0.5);
+}
+
+BOX_STYLES.flat.draw = drawFlatBox;
+BOX_STYLES.ribbed.draw = drawRibbedBox;
+BOX_STYLES.panels.draw = drawPanelGridBox;
+BOX_STYLES.pips.draw = drawPipCountBox;
+BOX_STYLES.chamfer.draw = drawChamferBox;
+BOX_STYLES.dev.draw = (g, w, h, volume, hex, u, v, faceKind) => drawDevPanel(g, w, h, volume, hex, faceKind);
+
 function modernFaceTex(u, v, volume, priorityHex, faceKind) {
   u = Math.max(1, Math.round(u)); v = Math.max(1, Math.round(v));
   volume = Math.max(1, Math.round(volume));
   const color = String(priorityHex || '#cccccc').toUpperCase();
-  const key = `${u}x${v}:${volume}:${color}:${faceKind}`;
+  const style = BOX_STYLES[boxStyleKey] ? boxStyleKey : 'flat';
+  const key = `${style}:${u}x${v}:${volume}:${color}:${faceKind}`;
   if (modernTexCache.has(key)) return modernTexCache.get(key);
   const px = 54;
   const c = document.createElement('canvas');
   c.width = Math.max(96, u * px);
   c.height = Math.max(96, v * px);
   const g = c.getContext('2d');
-  drawDevPanel(g, c.width, c.height, volume, color, faceKind);
+  BOX_STYLES[style].draw(g, c.width, c.height, volume, color, u, v, faceKind);
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.LinearFilter;
   t.minFilter = THREE.LinearMipmapLinearFilter;
@@ -1424,9 +1711,16 @@ function applyTheme() {
   if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; ghostKey = ''; }
   renderLegend();
 
+  const bs = document.getElementById('boxStyleSelect');
+  if (bs) {
+    bs.disabled = !!STYLE.pixel;
+    if (bs.value !== boxStyleKey) bs.value = boxStyleKey;
+  }
+
   try {
     localStorage.setItem('cargoViewerStyle', styleKey);
     localStorage.setItem('cargoViewerPalette', paletteKey);
+    localStorage.setItem('cargoViewerBoxStyle', boxStyleKey);
   } catch (e) { /* storage unavailable */ }
 
   // Broadcast the theme through the page title so the host desktop app can
@@ -1443,6 +1737,12 @@ window.setViewerStyle = function(key) {
 window.setViewerPalette = function(key) {
   if (!PALETTES[key]) return;
   paletteKey = key;
+  applyTheme();
+};
+
+window.setViewerBoxStyle = function(key) {
+  if (!BOX_STYLES[key]) return;
+  boxStyleKey = key;
   applyTheme();
 };
 
@@ -1489,12 +1789,16 @@ window.setPriorityColor = function(priority, color) {
 function populateThemeSelectors() {
   const ss = document.getElementById('styleSelect');
   const ps = document.getElementById('paletteSelect');
+  const bs = document.getElementById('boxStyleSelect');
   ss.innerHTML = Object.entries(STYLES)
     .map(([k, s]) => `<option value="${k}">${s.label}</option>`).join('');
   ps.innerHTML = Object.entries(PALETTES)
     .map(([k, p]) => `<option value="${k}">${p.label}</option>`).join('');
+  bs.innerHTML = Object.entries(BOX_STYLES)
+    .map(([k, b]) => `<option value="${k}">${b.label}</option>`).join('');
   ss.value = styleKey;
   ps.value = paletteKey;
+  bs.value = boxStyleKey;
 }
 
 window.resetView = function() {
@@ -2194,7 +2498,8 @@ window.__viewerDebug = {
     return [rect.left + (v.x + 1) / 2 * rect.width, rect.top + (1 - v.y) / 2 * rect.height];
   },
   selectedIndex: () => itemMeshes.indexOf(selectedRec),
-  theme: () => ({ style: styleKey, palette: paletteKey, priorityColors: priorityColorsOverride }),
+  theme: () => ({ style: styleKey, palette: paletteKey, boxStyle: boxStyleKey,
+                  priorityColors: priorityColorsOverride }),
 };
 
 try {
