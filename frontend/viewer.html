@@ -152,7 +152,7 @@
   <label title="Show 1-unit floor grid lines for spatial reference"><input type="checkbox" id="gridToggle" onchange="toggleGrid()"> Grid lines</label>
   <span class="sep"></span>
   <label title="Rendering style">Style <select id="styleSelect" onchange="setViewerStyle(this.value)"></select></label>
-  <label title="Crate texture design (Modern style only)">Boxes <select id="boxStyleSelect" onchange="setViewerBoxStyle(this.value)"></select></label>
+  <label title="Crate texture design for the active rendering style">Boxes <select id="boxStyleSelect" onchange="setViewerBoxStyle(this.value)"></select></label>
   <label title="Color palette inspired by ship manufacturers' in-game UI">Palette <select id="paletteSelect" onchange="setViewerPalette(this.value)"></select></label>
 </div>
 
@@ -190,6 +190,18 @@ const BOX_STYLES = {
   pips:    { label: 'Pip Count' },
   chamfer: { label: 'Chamfer Plate' },
   dev:     { label: 'Dev Kit' },
+};
+
+// Crate texture designs for the 8-Bit style: grayscale pixel-art panels,
+// tinted by the material's priority color (map × color). 'classic' is the
+// original crate, unchanged. cellPx is the texture resolution per SCU cell;
+// minPx the smallest canvas side. `draw` properties attach below.
+const RETRO_BOX_STYLES = {
+  classic: { label: 'Classic Crate',  cellPx: 36, minPx: 48 },
+  crate:   { label: 'Pixel Crate',    cellPx: 16, minPx: 16 },
+  dice:    { label: 'Pip Dice',       cellPx: 16, minPx: 16 },
+  hazard:  { label: 'Hazard Freight', cellPx: 16, minPx: 16 },
+  rivet:   { label: 'Rivet Panel',    cellPx: 16, minPx: 16 },
 };
 
 const PALETTES = {
@@ -282,10 +294,12 @@ const DEFAULT_PRIORITY_COLORS = PRIORITY_COLOR_OPTIONS.slice(0, 5).map(c => c.va
 let styleKey = 'modern';
 let paletteKey = 'default';
 let boxStyleKey = 'flat';
+let retroBoxStyleKey = 'classic';
 try {
   if (STYLES[localStorage.getItem('cargoViewerStyle')]) styleKey = localStorage.getItem('cargoViewerStyle');
   if (PALETTES[localStorage.getItem('cargoViewerPalette')]) paletteKey = localStorage.getItem('cargoViewerPalette');
   if (BOX_STYLES[localStorage.getItem('cargoViewerBoxStyle')]) boxStyleKey = localStorage.getItem('cargoViewerBoxStyle');
+  if (RETRO_BOX_STYLES[localStorage.getItem('cargoViewerRetroBoxStyle')]) retroBoxStyleKey = localStorage.getItem('cargoViewerRetroBoxStyle');
 } catch (e) { /* storage unavailable */ }
 let STYLE = STYLES[styleKey];
 let PAL = PALETTES[paletteKey];
@@ -1156,20 +1170,169 @@ function drawSizePanel(g, w, h, volume) {
   drawSizeLabel(g, w, h, volume);
 }
 
+// ──── 8-Bit crate designs (RETRO_BOX_STYLES) ─────────────────────────────────
+// Drawn in grays at chunky per-cell resolution; the material's priority color
+// tints the whole texture, exactly like the classic crate.
+
+const pxGray = v => { const n = Math.round(v * 255); return `rgb(${n},${n},${n})`; };
+
+// 3×5 pixel digit font — real pixel glyphs instead of anti-aliased text.
+const PIX_DIGITS = {
+  '0': ['111','101','101','101','111'], '1': ['010','110','010','010','111'],
+  '2': ['111','001','111','100','111'], '3': ['111','001','011','001','111'],
+  '4': ['101','101','111','001','001'], '5': ['111','100','111','001','111'],
+  '6': ['111','100','111','101','111'], '7': ['111','001','010','010','010'],
+  '8': ['111','101','111','101','111'], '9': ['111','101','111','001','111'],
+};
+function pixNumWidth(num, s) { return String(num).length * 4 * s - s; }
+function drawPixNum(g, num, x, y, s, color) {
+  g.fillStyle = color;
+  let cx = x;
+  for (const ch of String(num)) {
+    const rows = PIX_DIGITS[ch];
+    if (rows) {
+      for (let j = 0; j < 5; j++) {
+        for (let i = 0; i < 3; i++) {
+          if (rows[j][i] === '1') g.fillRect(cx + i * s, y + j * s, s, s);
+        }
+      }
+    }
+    cx += 4 * s;
+  }
+}
+// Largest 3×5 multiple that fits the face, centered, with a 1px drop shadow.
+function drawCenteredPixNum(g, w, h, num, dark, light) {
+  const s = Math.max(1, Math.min(Math.floor(h / 9), Math.floor((w * 0.7) / (String(num).length * 4))));
+  const nw = pixNumWidth(num, s);
+  const x = Math.round((w - nw) / 2), y = Math.round((h - 5 * s) / 2);
+  drawPixNum(g, num, x + 1, y + 1, s, light);
+  drawPixNum(g, num, x, y, s, dark);
+}
+function pixFrame(g, w, h, dark, hi, lo) {
+  g.fillStyle = dark;
+  g.fillRect(0, 0, w, 1); g.fillRect(0, h - 1, w, 1);
+  g.fillRect(0, 0, 1, h); g.fillRect(w - 1, 0, 1, h);
+  g.fillStyle = hi;
+  g.fillRect(1, 1, w - 2, 1); g.fillRect(1, 1, 1, h - 2);
+  g.fillStyle = lo;
+  g.fillRect(1, h - 2, w - 2, 1); g.fillRect(w - 2, 1, 1, h - 2);
+}
+
+// Pixel Crate: planked wooden crate with a stepped X brace and a stamped plate.
+function drawPixelCrateTex(g, w, h, volume) {
+  g.fillStyle = pxGray(0.72); g.fillRect(0, 0, w, h);
+  g.fillStyle = pxGray(0.60);
+  for (let y = 4; y < h - 2; y += 4) g.fillRect(2, y, w - 4, 1);
+  g.fillStyle = pxGray(0.42);
+  const steps = Math.max(6, Math.round(Math.max(w, h) / 4));
+  for (let i = 0; i <= steps; i++) {
+    const x = Math.round(2 + (w - 6) * i / steps);
+    const y = Math.round(2 + (h - 6) * i / steps);
+    g.fillRect(x, y, 3, 3);
+    g.fillRect(w - 3 - x, y, 3, 3);
+  }
+  g.fillStyle = pxGray(0.88);
+  g.fillRect(0, 0, w, 3); g.fillRect(0, h - 3, w, 3);
+  g.fillRect(0, 0, 3, h); g.fillRect(w - 3, 0, 3, h);
+  pixFrame(g, w, h, pxGray(0.20), pxGray(0.95), pxGray(0.45));
+  const s = Math.max(1, Math.min(Math.floor(h / 10), 3));
+  const nw = pixNumWidth(volume, s);
+  const pw = nw + 4 * s, ph = 5 * s + 4;
+  const px0 = Math.round((w - pw) / 2), py0 = Math.round((h - ph) / 2);
+  g.fillStyle = pxGray(0.92); g.fillRect(px0, py0, pw, ph);
+  g.fillStyle = pxGray(0.18);
+  g.fillRect(px0, py0, pw, 1); g.fillRect(px0, py0 + ph - 1, pw, 1);
+  g.fillRect(px0, py0, 1, ph); g.fillRect(px0 + pw - 1, py0, 1, ph);
+  drawPixNum(g, volume, px0 + 2 * s, py0 + 2, s, pxGray(0.12));
+}
+
+// Pip Dice: chunky pip grid encoding the SCU count, no text anywhere.
+function drawPipDiceTex(g, w, h, volume) {
+  g.fillStyle = pxGray(0.82); g.fillRect(0, 0, w, h);
+  pixFrame(g, w, h, pxGray(0.22), pxGray(0.94), pxGray(0.50));
+  let [cols, rows] = PIP_GRIDS[volume] || [3, 3];
+  if (h > w * 1.3 && cols > rows) [cols, rows] = [rows, cols];
+  const p = Math.max(2, Math.floor(Math.min(
+    (w * 0.66) / (cols * 1.5 - 0.5), (h * 0.6) / (rows * 1.5 - 0.5),
+    Math.min(w, h) * 0.35)));
+  const gap = Math.max(1, Math.round(p * 0.5));
+  const gw = cols * p + (cols - 1) * gap, gh = rows * p + (rows - 1) * gap;
+  const x0 = Math.round((w - gw) / 2), y0 = Math.round((h - gh) / 2);
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      const x = x0 + i * (p + gap), y = y0 + j * (p + gap);
+      g.fillStyle = pxGray(0.15); g.fillRect(x, y, p, p);
+      if (p >= 3) { g.fillStyle = pxGray(0.55); g.fillRect(x, y, 1, 1); }
+    }
+  }
+}
+
+// Hazard Freight: warning-stripe border around a plain field with a numeral.
+function drawHazardTex(g, w, h, volume) {
+  g.fillStyle = pxGray(0.78); g.fillRect(0, 0, w, h);
+  const bw = Math.max(3, Math.round(Math.min(w, h) * 0.14));
+  g.save();
+  g.beginPath();
+  g.rect(0, 0, w, h);
+  g.rect(bw, bw, w - bw * 2, h - bw * 2);
+  g.clip('evenodd');
+  g.fillStyle = pxGray(0.92); g.fillRect(0, 0, w, h);
+  g.fillStyle = pxGray(0.15);
+  for (let x = -h; x < w + h; x += bw * 2) {
+    for (let k = 0; k < h; k++) g.fillRect(Math.round(x + k), k, bw, 1);
+  }
+  g.restore();
+  g.fillStyle = pxGray(0.30);
+  g.fillRect(bw, bw, w - bw * 2, 1); g.fillRect(bw, h - bw - 1, w - bw * 2, 1);
+  g.fillRect(bw, bw, 1, h - bw * 2); g.fillRect(w - bw - 1, bw, 1, h - bw * 2);
+  drawCenteredPixNum(g, w, h, volume, pxGray(0.12), pxGray(0.95));
+}
+
+// Rivet Panel: one riveted plate per SCU cell, numeral on top.
+function drawRivetPanelTex(g, w, h, volume, u, v) {
+  g.fillStyle = pxGray(0.74); g.fillRect(0, 0, w, h);
+  const cw = w / u, ch = h / v;
+  for (let i = 0; i < u; i++) {
+    for (let j = 0; j < v; j++) {
+      const x = Math.round(i * cw), y = Math.round(j * ch);
+      const xw = Math.round((i + 1) * cw) - x, yh = Math.round((j + 1) * ch) - y;
+      g.fillStyle = pxGray(0.40);
+      g.fillRect(x, y, xw, 1); g.fillRect(x, y + yh - 1, xw, 1);
+      g.fillRect(x, y, 1, yh); g.fillRect(x + xw - 1, y, 1, yh);
+      g.fillStyle = pxGray(0.88);
+      g.fillRect(x + 1, y + 1, xw - 2, 1);
+      g.fillStyle = pxGray(0.55);
+      g.fillRect(x + 1, y + yh - 2, xw - 2, 1);
+      g.fillStyle = pxGray(0.25);
+      g.fillRect(x + 2, y + 2, 1, 1); g.fillRect(x + xw - 3, y + 2, 1, 1);
+      g.fillRect(x + 2, y + yh - 3, 1, 1); g.fillRect(x + xw - 3, y + yh - 3, 1, 1);
+    }
+  }
+  pixFrame(g, w, h, pxGray(0.18), pxGray(0.92), pxGray(0.45));
+  drawCenteredPixNum(g, w, h, volume, pxGray(0.14), pxGray(0.94));
+}
+
+RETRO_BOX_STYLES.classic.draw = (g, w, h, volume) => drawSizePanel(g, w, h, volume);
+RETRO_BOX_STYLES.crate.draw = drawPixelCrateTex;
+RETRO_BOX_STYLES.dice.draw = drawPipDiceTex;
+RETRO_BOX_STYLES.hazard.draw = drawHazardTex;
+RETRO_BOX_STYLES.rivet.draw = drawRivetPanelTex;
+
 // Grayscale texture drawing one full-face crate panel. Each SCU size gets a
 // distinct whole-face marking while priority color still tints the material.
 function faceTex(u, v, volume) {
   u = Math.max(1, Math.round(u)); v = Math.max(1, Math.round(v));
   volume = Math.max(1, Math.round(volume));
-  const key = u + 'x' + v + ':' + volume;
+  const style = RETRO_BOX_STYLES[retroBoxStyleKey] ? retroBoxStyleKey : 'classic';
+  const key = style + ':' + u + 'x' + v + ':' + volume;
   if (faceTexCache.has(key)) return faceTexCache.get(key);
-  const px = 36;
+  const spec = RETRO_BOX_STYLES[style];
   const c = document.createElement('canvas');
-  c.width = Math.max(48, u * px);
-  c.height = Math.max(48, v * px);
+  c.width = Math.max(spec.minPx, u * spec.cellPx);
+  c.height = Math.max(spec.minPx, v * spec.cellPx);
   const g = c.getContext('2d');
   g.imageSmoothingEnabled = false;
-  drawSizePanel(g, c.width, c.height, volume);
+  spec.draw(g, c.width, c.height, volume, u, v);
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter;
   t.minFilter = THREE.NearestFilter;
@@ -1711,16 +1874,17 @@ function applyTheme() {
   if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; ghostKey = ''; }
   renderLegend();
 
-  const bs = document.getElementById('boxStyleSelect');
-  if (bs) {
-    bs.disabled = !!STYLE.pixel;
-    if (bs.value !== boxStyleKey) bs.value = boxStyleKey;
-  }
+  const ss = document.getElementById('styleSelect');
+  const ps = document.getElementById('paletteSelect');
+  if (ss && ss.value !== styleKey) ss.value = styleKey;
+  if (ps && ps.value !== paletteKey) ps.value = paletteKey;
+  refreshBoxStyleSelect();
 
   try {
     localStorage.setItem('cargoViewerStyle', styleKey);
     localStorage.setItem('cargoViewerPalette', paletteKey);
     localStorage.setItem('cargoViewerBoxStyle', boxStyleKey);
+    localStorage.setItem('cargoViewerRetroBoxStyle', retroBoxStyleKey);
   } catch (e) { /* storage unavailable */ }
 
   // Broadcast the theme through the page title so the host desktop app can
@@ -1740,9 +1904,16 @@ window.setViewerPalette = function(key) {
   applyTheme();
 };
 
+// The Boxes selector applies to whichever rendering style is active: it picks
+// among modern crate designs under Modern, and pixel-art designs under 8-Bit.
 window.setViewerBoxStyle = function(key) {
-  if (!BOX_STYLES[key]) return;
-  boxStyleKey = key;
+  if (STYLE.pixel) {
+    if (!RETRO_BOX_STYLES[key]) return;
+    retroBoxStyleKey = key;
+  } else {
+    if (!BOX_STYLES[key]) return;
+    boxStyleKey = key;
+  }
   applyTheme();
 };
 
@@ -1786,19 +1957,26 @@ window.setPriorityColor = function(priority, color) {
   return true;
 };
 
+// The Boxes selector lists the designs for the active rendering style.
+function refreshBoxStyleSelect() {
+  const bs = document.getElementById('boxStyleSelect');
+  if (!bs) return;
+  const styles = STYLE.pixel ? RETRO_BOX_STYLES : BOX_STYLES;
+  bs.innerHTML = Object.entries(styles)
+    .map(([k, b]) => `<option value="${k}">${b.label}</option>`).join('');
+  bs.value = STYLE.pixel ? retroBoxStyleKey : boxStyleKey;
+}
+
 function populateThemeSelectors() {
   const ss = document.getElementById('styleSelect');
   const ps = document.getElementById('paletteSelect');
-  const bs = document.getElementById('boxStyleSelect');
   ss.innerHTML = Object.entries(STYLES)
     .map(([k, s]) => `<option value="${k}">${s.label}</option>`).join('');
   ps.innerHTML = Object.entries(PALETTES)
     .map(([k, p]) => `<option value="${k}">${p.label}</option>`).join('');
-  bs.innerHTML = Object.entries(BOX_STYLES)
-    .map(([k, b]) => `<option value="${k}">${b.label}</option>`).join('');
   ss.value = styleKey;
   ps.value = paletteKey;
-  bs.value = boxStyleKey;
+  refreshBoxStyleSelect();
 }
 
 window.resetView = function() {
@@ -2499,7 +2677,7 @@ window.__viewerDebug = {
   },
   selectedIndex: () => itemMeshes.indexOf(selectedRec),
   theme: () => ({ style: styleKey, palette: paletteKey, boxStyle: boxStyleKey,
-                  priorityColors: priorityColorsOverride }),
+                  retroBoxStyle: retroBoxStyleKey, priorityColors: priorityColorsOverride }),
 };
 
 try {

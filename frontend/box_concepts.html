@@ -114,10 +114,10 @@
      color of the box, draws all six faces from the same panel, and sizes every element from the face
      dimensions, so nothing overlaps from the 1&nbsp;SCU cube up to the 8-cell-long faces of a
      32&nbsp;SCU crate.</p>
-  <p style="margin-top:8px"><strong>8-Bit (F–I):</strong> new pixel-art concepts to pick from. The
-     current 8-bit crate stays and is shown first for reference. These are drawn the way the retro
-     pipeline works — a grayscale pixel texture tinted by the priority color — with a real 3×5 pixel
-     digit font instead of smoothed text. Hover a box to rotate it.</p>
+  <p style="margin-top:8px"><strong>8-Bit (F–I):</strong> all implemented as well — under the 8-Bit
+     style, the <em>Boxes</em> menu lists these alongside the classic crate, which stays the default.
+     They're drawn the way the retro pipeline works — a grayscale pixel texture tinted by the priority
+     color — with a real 3×5 pixel digit font instead of smoothed text. Hover a box to rotate it.</p>
 </header>
 
 <div class="controls">
@@ -675,12 +675,11 @@ const CONCEPTS = [
            'distances — while the rim keeps the priority color dominant.',
   },
   {
-    group: '8-Bit — new concepts to pick from (current crate stays)',
-    tag: '8-Bit', name: 'Current crate (kept)', draw: (g, w, h, scu) => drawRetroCurrent(g, w, h, scu),
+    group: '8-Bit — implemented, pick them under “Boxes” in the viewer',
+    tag: '8-Bit', name: 'Classic Crate (kept, default)', draw: (g, w, h, scu) => drawRetroCurrent(g, w, h, scu),
     pixel: true, cellPx: 36,
-    blurb: 'The existing 8-bit crate, unchanged, shown here for reference: grayscale dev panel with a ' +
-           'per-size marking, tinted by the priority color. This one stays available regardless of ' +
-           'which new concepts you pick.',
+    blurb: 'The existing 8-bit crate, unchanged and still the default: grayscale dev panel with a ' +
+           'per-size marking, tinted by the priority color.',
   },
   {
     tag: 'F', name: 'Pixel Crate', draw: (g, w, h, scu) => drawPixelCrate(g, w, h, scu),
