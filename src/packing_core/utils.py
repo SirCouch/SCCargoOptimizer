@@ -597,7 +597,7 @@ def visualize_packing(env):
         ax = fig.add_subplot(111, projection='3d')
 
         # Plot container boundaries
-        container_width, container_length, container_height = [x.item() for x in env.grids[0]['dims']]
+        container_width, container_length, container_height = env.grids[0]['dims']
 
         # Define the vertices of the container
         vertices = [
@@ -636,8 +636,8 @@ def visualize_packing(env):
                 cargo_label += 1
 
             # Define the vertices of the box
-            x, y, z = [v.item() for v in box.position]
-            w, l, h = [v.item() for v in box.dimensions]
+            x, y, z = box.position
+            w, l, h = box.dimensions
 
             box_vertices = [
                 [x, y, z],
@@ -716,75 +716,50 @@ def visualize_packing(env):
     except ImportError as e:
         print(f"Visualization requires additional libraries: {e}")
 
-# Also create a function to load a saved model for inference
+def _actor_shape_from_weights(actor_weights, checkpoint):
+    node_feature_dim = int(checkpoint.get("node_feature_dim", 13))
+    hidden_dim = int(checkpoint.get("hidden_dim", 128))
+    for key, value in actor_weights.items():
+        if key.endswith("conv1.lin.weight"):
+            node_feature_dim = value.shape[1]
+        elif key.endswith("score_head.0.weight"):
+            hidden_dim = value.shape[1]
+    return node_feature_dim, hidden_dim
+
+
 def load_trained_model(checkpoint_path="enhanced_gnn_model_checkpoint.pt", device=None):
-    """
-    Load a trained model from checkpoint
-    """
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    """Load only actor weights onto the selected inference device."""
+    target_device = torch.device(device or "cpu")
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    if "actor_state_dict" in checkpoint:
+        actor_weights = checkpoint["actor_state_dict"]
+    elif "state_dict" in checkpoint:
+        actor_weights = checkpoint["state_dict"]
+    else:
+        actor_weights = checkpoint
 
-    # Load checkpoint
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-
-    # Initialize actor network
-    # We need to determine the feature dimension - use a small test environment
-    temp_env = DRLBinPackingEnv(grids_list=[((4, 4, 4), "Main")])
-    test_state = temp_env.reset()
-    node_feature_dim = test_state.x.size(1)
-    del temp_env
-
-    # Detect hidden_dim from checkpoint weights
-    actor_weights = checkpoint['actor_state_dict']
-    # The score_head final layer output is always 2; its input reveals hidden_dim
-    hidden_dim = 128  # default
-    for key, val in actor_weights.items():
-        if 'score_head.0.weight' in key:
-            hidden_dim = val.shape[1]
-            break
-
-    actor = ActorGNN(node_feature_dim=node_feature_dim, hidden_dim=hidden_dim).to(device)
-    actor.load_state_dict(checkpoint['actor_state_dict'], strict=False)
-    actor.eval()
+    node_feature_dim, hidden_dim = _actor_shape_from_weights(actor_weights, checkpoint)
+    actor = ActorGNN(node_feature_dim=node_feature_dim, hidden_dim=hidden_dim)
+    actor.load_state_dict(actor_weights, strict=False)
+    actor.to(target_device).eval()
 
     print(f"Model loaded from {checkpoint_path}")
-    print(f"Trained for {checkpoint['episode']} episodes")
-
+    if "episode" in checkpoint:
+        print(f"Trained for {checkpoint['episode']} episodes")
     return actor, checkpoint
 
-# Function for single inference (for API use)
+
 def _brute_force_find_placement(env, item_tuple, enforce_priority=True):
-    """Diagnostic: integer-grid scan for any feasible placement of item_tuple.
-    Returns (grid_idx, x, y, z, rot) or None."""
-    w, l, h, weight, priority = item_tuple
-    rotations = [(w, l), (l, w)] if w != l else [(w, l)]
-    for grid_idx, grid in enumerate(env.grids):
-        gw, gl, gh = [int(d.item()) for d in grid['dims']]
-        grid_dims = grid['dims']
-        for rot, (iw, il) in enumerate(rotations):
-            iw_i, il_i, ih_i = int(iw), int(il), int(h)
-            if iw_i > gw or il_i > gl or ih_i > gh:
-                continue
-            for x in range(gw - iw_i + 1):
-                for y in range(gl - il_i + 1):
-                    for z in range(gh - ih_i + 1):
-                        pos = torch.tensor([float(x), float(y), float(z)])
-                        dims = torch.tensor([float(iw_i), float(il_i), float(ih_i)])
-                        if env._check_additional_constraints(
-                                pos, dims, weight, priority, grid_idx, grid_dims,
-                                enforce_priority=enforce_priority):
-                            return (grid_idx, x, y, z, rot, iw_i, il_i, ih_i)
-    return None
+    """Compatibility name for the face-derived candidate-anchor repair search."""
+    return env.find_candidate_placement(item_tuple, enforce_priority=enforce_priority)
 
 
 def _find_repair_placement(env, item_tuple):
-    found = _brute_force_find_placement(env, item_tuple, enforce_priority=True)
+    found = env.find_candidate_placement(item_tuple, enforce_priority=True)
     if found is not None:
         return found, False
-    found = _brute_force_find_placement(env, item_tuple, enforce_priority=False)
-    if found is not None:
-        return found, True
-    return None, False
+    found = env.find_candidate_placement(item_tuple, enforce_priority=False)
+    return (found, True) if found is not None else (None, False)
 
 
 def _skipped_item_info(item_idx, item_tuple):
@@ -796,30 +771,21 @@ def _skipped_item_info(item_idx, item_tuple):
     }
 
 
-def _apply_brute_force_placement(env, item_tuple, found):
-    gidx, x, y, z, rot, iw, il, ih = found
-    position = torch.tensor([float(x), float(y), float(z)], dtype=torch.float)
-    dimensions = torch.tensor([float(iw), float(il), float(ih)], dtype=torch.float)
-    placed_item = Box3D(position, dimensions)
-
-    env.placed_items.append(env._placement_record(
-        placed_item,
+def _apply_repair_placement(env, item_tuple, found):
+    grid_idx, x, y, z, rotation, width, length, height = found
+    box = Box3D((x, y, z), (width, length, height))
+    env._commit_box(
+        box,
         weight=item_tuple[3],
         priority=item_tuple[4],
-        grid_idx=gidx,
-    ))
-    env.successful_placements += 1
-    env._grid_placed_vol[gidx] += float(placed_item.volume.item())
-    env._grid_placed_count[gidx] += 1
-    env._cached_mers = None
-    env.mer_managers[gidx].update(placed_item)
-
+        grid_idx=grid_idx,
+    )
     return {
-        "grid_idx": gidx,
-        "grid_name": env.grids[gidx]['name'],
+        "grid_idx": grid_idx,
+        "grid_name": env.grids[grid_idx]["name"],
         "feasible_position": [x, y, z],
-        "rotated_dims": [iw, il, ih],
-        "rotation": rot,
+        "rotated_dims": [width, length, height],
+        "rotation": rotation,
     }
 
 
@@ -838,220 +804,183 @@ def _record_repair(diagnostics, skipped_info, repair, reason, priority_relaxed=F
     return record
 
 
+def _model_device(actor):
+    try:
+        return next(actor.parameters()).device
+    except StopIteration:
+        return torch.device("cpu")
+
+
+def _actor_logits(actor, state, feasibility_mask):
+    if hasattr(actor, "action_logits"):
+        return actor.action_logits(state, feasibility_mask)
+    output = actor(state, feasibility_mask)
+    return output.logits if hasattr(output, "logits") else output
+
+
+def _collapse_square_rotation_logits(logits):
+    pairs = logits.reshape(-1, 2)
+    best = torch.maximum(pairs[:, 0], pairs[:, 1])
+    disabled = torch.full_like(best, float("-inf"))
+    return torch.stack((best, disabled), dim=1).reshape(-1)
+
+
+@torch.inference_mode()
 def pack_single_manifest(actor, grids_list, manifest, device=None, diagnose=False):
-    """
-    Pack a single manifest across multiple grids using the trained model.
-    If the GNN/MER path skips an item but an integer-grid scan finds a legal
-    slot, place it as a deterministic repair and record it in diagnostics.
-    """
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    """Pack a manifest through the inference-only resolved-action path."""
+    if device is not None and _model_device(actor) != torch.device(device):
+        actor.to(device)
+    actor.eval()
 
-    # Create environment
     env = DRLBinPackingEnv(grids_list=grids_list)
-
-    # Convert manifest to item list
     cargo_manifest = manifest_to_item_list(manifest)
-
-    # Reset environment with manifest
     state = env.reset(cargo_manifest=cargo_manifest)
-
     diagnostics = {
         "missed_placements": [],
         "repaired_placements": [],
         "priority_relaxed_placements": [],
         "skipped_items": [],
     }
-    skipped_indices = []  # actual manifest indices that failed to place
+    skipped_indices = []
 
-    # Run packing
-    steps = 0
-    max_steps = 500
+    # Every branch advances exactly one manifest item. The manifest length is
+    # therefore the only required safety bound.
+    for _step in range(len(cargo_manifest)):
+        if env.current_item is None:
+            break
 
-    while steps < max_steps and env.current_item is not None:
-        steps += 1
-
-        # Get feasibility mask
+        item_idx = env.current_item_idx
+        item_tuple = cargo_manifest[item_idx]
         feasibility_mask = env.get_feasibility_mask()
-        pre_step_idx = env.current_item_idx
-        pre_step_placed = env.successful_placements
 
-        # Check if there are any feasible actions
-        if np.sum(feasibility_mask) == 0:
-            idx = env.current_item_idx
-            item_tuple = cargo_manifest[idx]
-            skipped_info = _skipped_item_info(idx, item_tuple)
+        if not feasibility_mask.any():
             found, priority_relaxed = _find_repair_placement(env, item_tuple)
             if found is not None:
-                repair = _apply_brute_force_placement(env, item_tuple, found)
+                skipped_info = _skipped_item_info(item_idx, item_tuple)
+                repair = _apply_repair_placement(env, item_tuple, found)
                 _record_repair(
-                    diagnostics, skipped_info, repair,
+                    diagnostics,
+                    skipped_info,
+                    repair,
                     reason="no_feasible_mer_action",
                     priority_relaxed=priority_relaxed,
                 )
                 if diagnose:
-                    relaxed_text = " placed out of priority order" if priority_relaxed else ""
+                    relaxed = " placed out of priority order" if priority_relaxed else ""
                     print(
-                        f"[repair] MER MISS: item#{idx} dims={skipped_info['dims']} "
-                        f"P{skipped_info['priority']} placed at "
-                        f"{repair['feasible_position']} on grid '{repair['grid_name']}' "
-                        f"rot={repair['rotation']}{relaxed_text}",
+                        f"[repair] MER MISS: item#{item_idx} dims={skipped_info['dims']} "
+                        f"P{skipped_info['priority']} placed at {repair['feasible_position']} "
+                        f"on grid '{repair['grid_name']}' rot={repair['rotation']}{relaxed}",
                         flush=True,
                     )
-                env._move_to_next_item()
-                if env.current_item is None:
-                    break
-                state = env._build_graph_state()
-                continue
-
-            if diagnose:
-                idx = env.current_item_idx
-                item_tuple = cargo_manifest[idx]
-                skipped_info = {
-                    "item_idx": idx,
-                    "dims": list(item_tuple[:3]),
-                    "weight": item_tuple[3],
-                    "priority": item_tuple[4],
-                }
-                found = _brute_force_find_placement(env, item_tuple)
-                if found is not None:
-                    gidx, x, y, z, rot, iw, il, ih = found
-                    miss = {
-                        **skipped_info,
-                        "grid_idx": gidx,
-                        "grid_name": env.grids[gidx]['name'],
-                        "feasible_position": [x, y, z],
-                        "rotated_dims": [iw, il, ih],
-                        "rotation": rot,
-                    }
-                    diagnostics["missed_placements"].append(miss)
-                    print(f"[diagnose] MER MISS: item#{idx} dims={skipped_info['dims']} P{skipped_info['priority']} "
-                          f"— brute-force found ({x},{y},{z}) on grid '{env.grids[gidx]['name']}' rot={rot}",
-                          flush=True)
-                else:
-                    diagnostics["skipped_items"].append(skipped_info)
-                    print(f"[diagnose] NO-FIT (given current layout): item#{idx} dims={skipped_info['dims']} P{skipped_info['priority']}",
-                          flush=True)
-            skipped_indices.append(pre_step_idx)
+            else:
+                skipped_info = _skipped_item_info(item_idx, item_tuple)
+                diagnostics["skipped_items"].append(skipped_info)
+                skipped_indices.append(item_idx)
+                if diagnose:
+                    print(
+                        f"[diagnose] NO-FIT (given current layout): item#{item_idx} "
+                        f"dims={skipped_info['dims']} P{skipped_info['priority']}",
+                        flush=True,
+                    )
             env._move_to_next_item()
-            if env.current_item is None:
-                break
-            state = env._build_graph_state()
+            if env.current_item is not None:
+                state = env._build_graph_state()
             continue
 
-        # Get action from actor (greedy)
-        with torch.no_grad():
-            action_dist = actor(state, feasibility_mask)
-            action = torch.argmax(action_dist.probs)
+        logits = _actor_logits(actor, state, feasibility_mask)
+        width, length, _height = env.current_item["dimensions"]
+        if width == length:
+            logits = _collapse_square_rotation_logits(logits)
+        action = int(torch.argmax(logits).item())
+        done, info = env.commit_action(action)
 
-        # Take step
-        next_state, reward, done, info = env.step(action.item())
-        state = next_state
-
-        # Detect skip-via-step-failure: item idx advanced but placements didn't
-        if env.successful_placements == pre_step_placed and env.current_item_idx > pre_step_idx:
-            item_tuple = cargo_manifest[pre_step_idx]
+        if not info.get("feasible", False):
             found, priority_relaxed = _find_repair_placement(env, item_tuple)
             if found is not None:
-                skipped_info = _skipped_item_info(pre_step_idx, item_tuple)
-                repair = _apply_brute_force_placement(env, item_tuple, found)
+                repair = _apply_repair_placement(env, item_tuple, found)
                 _record_repair(
-                    diagnostics, skipped_info, repair,
-                    reason=info.get("error", "step_rejected_action"),
+                    diagnostics,
+                    _skipped_item_info(item_idx, item_tuple),
+                    repair,
+                    reason=info.get("error", "commit_rejected_action"),
                     priority_relaxed=priority_relaxed,
                 )
-                if diagnose:
-                    relaxed_text = " placed out of priority order" if priority_relaxed else ""
-                    print(
-                        f"[repair] STEP FAIL: item#{pre_step_idx} dims={skipped_info['dims']} "
-                        f"P{skipped_info['priority']} placed at "
-                        f"{repair['feasible_position']} on grid '{repair['grid_name']}' "
-                        f"rot={repair['rotation']}{relaxed_text}",
-                        flush=True,
-                    )
-                state = env._build_graph_state()
             else:
-                skipped_indices.append(pre_step_idx)
+                skipped_indices.append(item_idx)
+                diagnostics["skipped_items"].append(_skipped_item_info(item_idx, item_tuple))
+            env._move_to_next_item()
+            done = env.current_item is None
 
         if done:
             break
+        state = env._build_graph_state()
 
-    # Prepare results
     placements = []
-    cargo_idx = 0
-    for placed in env.placed_items:
-        if placed.get('is_blocker'):
-            continue
-        box = placed['box']
-
-        # Find which SCU type this corresponds to (compare sorted dims since rotation changes order)
-        dims = [box.width.item(), box.length.item(), box.height.item()]
-        dims_sorted = sorted(dims, reverse=True)
-        scu_type = None
-        for scu, scu_info in SCU_DEFINITIONS.items():
-            if dims_sorted == sorted(scu_info["dimensions"], reverse=True):
-                scu_type = scu
-                break
-
-        cargo_idx += 1
-        placement = {
+    for cargo_idx, placed in enumerate(
+        (item for item in env.placed_items if not item.get("is_blocker")), start=1
+    ):
+        box = placed["box"]
+        dimensions = list(box.dimensions)
+        sorted_dimensions = sorted(dimensions, reverse=True)
+        scu_type = next(
+            (
+                scu for scu, info in SCU_DEFINITIONS.items()
+                if sorted_dimensions == sorted(info["dimensions"], reverse=True)
+            ),
+            None,
+        )
+        placements.append({
             "item_id": f"{scu_type}_{cargo_idx:03d}",
             "scu_type": scu_type or "Unknown",
-            "position": [box.x1.item(), box.y1.item(), box.z1.item()],
-            "dimensions": dims,
-            "priority": placed['priority'],
-            "grid_idx": placed['grid_idx'],
-            "grid_name": env.grids[placed['grid_idx']]['name']
-        }
-        placements.append(placement)
+            "position": list(box.position),
+            "dimensions": dimensions,
+            "priority": placed["priority"],
+            "grid_idx": placed["grid_idx"],
+            "grid_name": env.grids[placed["grid_idx"]]["name"],
+        })
 
-    # Calculate metrics
-    success_rate = env.successful_placements / env.total_items if env.total_items > 0 else 0
-    total_volume = sum(
-        float(p['box'].volume.item())
-        for p in env.placed_items
-        if not p.get('is_blocker')
-    )
-    container_volume = env.total_ship_volume
-    utilization = total_volume / container_volume if container_volume > 0 else 0.0
-
-    # Identify unplaced items: the ACTUAL skipped indices, plus any manifest tail
-    # the loop never reached (shouldn't normally happen, but guard against it).
     unplaced_items = []
-    reached_idx = env.current_item_idx  # one past the last item processed
-    leftover = [i for i in range(reached_idx, len(cargo_manifest))]
-    for i in skipped_indices + leftover:
-        if i >= len(cargo_manifest):
-            continue
-        item = cargo_manifest[i]
-        item_dims_sorted = sorted(item[:3], reverse=True)
-        for scu, scu_info in SCU_DEFINITIONS.items():
-            if item_dims_sorted == sorted(scu_info["dimensions"], reverse=True):
-                unplaced_items.append({
-                    "scu_type": scu,
-                    "priority": item[4],
-                    "item_idx": i,
-                })
-                break
+    leftover = range(env.current_item_idx, len(cargo_manifest))
+    for item_idx in list(dict.fromkeys(skipped_indices + list(leftover))):
+        item = cargo_manifest[item_idx]
+        sorted_dimensions = sorted(item[:3], reverse=True)
+        scu_type = next(
+            (
+                scu for scu, info in SCU_DEFINITIONS.items()
+                if sorted_dimensions == sorted(info["dimensions"], reverse=True)
+            ),
+            None,
+        )
+        if scu_type is not None:
+            unplaced_items.append({
+                "scu_type": scu_type,
+                "priority": item[4],
+                "item_idx": item_idx,
+            })
 
+    total_volume = sum(
+        placed["box"].volume
+        for placed in env.placed_items
+        if not placed.get("is_blocker")
+    )
+    mer_stats = env.mer_statistics()
     result = {
         "success": True,
         "ship_grids": serialize_grids(env.grid_defs),
         "placements": placements,
         "unplaced_items": unplaced_items,
         "metrics": {
-            "success_rate": float(success_rate),
-            "volume_utilization": float(utilization),
+            "success_rate": env.successful_placements / env.total_items if env.total_items else 0.0,
+            "volume_utilization": total_volume / env.total_ship_volume if env.total_ship_volume else 0.0,
             "items_placed": env.successful_placements,
             "total_items": env.total_items,
             "usable_volume": float(env.total_ship_volume),
             "blocked_volume": float(sum(env.grid_blocked_volumes)),
-        }
+            "max_mer_count": mer_stats["max"],
+            "average_mer_count": mer_stats["average"],
+        },
     }
-
     if diagnose:
         result["diagnostics"] = diagnostics
-
     return result
-
-        # Example usage

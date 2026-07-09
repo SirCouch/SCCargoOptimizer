@@ -10,12 +10,19 @@ Output: dist/SCCargoOptimizer-<variant>/SCCargoOptimizer.exe
 """
 import os
 import sys
+import torch
 from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
 
 # Tag the dist folder by build variant so CPU and GPU builds can coexist.
-VARIANT = os.environ.get("BUILD_VARIANT", "gpu").strip().lower()
+VARIANT = os.environ.get("BUILD_VARIANT", "cpu").strip().lower()
+if VARIANT not in {"cpu", "gpu"}:
+    raise ValueError("BUILD_VARIANT must be 'cpu' or 'gpu'")
+if VARIANT == "cpu" and torch.version.cuda is not None:
+    raise RuntimeError(
+        "BUILD_VARIANT=cpu requires a CPU-only PyTorch installation. Use build_cpu.bat."
+    )
 DIST_NAME = f"SCCargoOptimizer-{VARIANT}"
 
 # Collect dynamically-loaded packages. torch and torch_geometric pull in many
@@ -53,9 +60,9 @@ opt_b = sum((x[1] for x in optional_collected), [])
 opt_h = sum((x[2] for x in optional_collected), [])
 
 MODEL_CHECKPOINTS = (
-    "small_gnn_model.pt",
-    "medium_gnn_model.pt",
-    "large_gnn_model.pt",
+    "small_actor_model.pt",
+    "medium_actor_model.pt",
+    "large_actor_model.pt",
 )
 model_datas = []
 missing_models = []

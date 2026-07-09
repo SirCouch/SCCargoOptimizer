@@ -44,8 +44,18 @@ pip install PySide6 torch torch-geometric numpy
 python src/desktop_app.py
 ```
 
-Models (`small_gnn_model.pt` / `medium_gnn_model.pt` / `large_gnn_model.pt`) are
-bundled in this repo. The training pipeline lives in the separate
+Inference defaults to CPU because the sequential graphs are faster there on the
+supported Windows hardware. A CUDA build can opt in with
+`SC_CARGO_MODEL_DEVICE=cuda`; geometry remains on CPU in either mode.
+CPU inference uses four Torch worker threads by default; override it with
+`SC_CARGO_CPU_THREADS` when benchmarking a different processor.
+
+Use `build_cpu.bat` for the release CPU-only package. The build uses an isolated
+CPU PyTorch environment and writes `dist\SCCargoOptimizer-cpu\SCCargoOptimizer.exe`.
+
+Inference actors (`small_actor_model.pt` / `medium_actor_model.pt` /
+`large_actor_model.pt`) are bundled in this repo. Full training checkpoints can
+be converted with `python tools/export_actor_checkpoints.py`. The training pipeline lives in the separate
 [3d-Bin-packing-StarCitizen](https://github.com/SirCouch/3d-Bin-packing-StarCitizen)
 repo — that's where you go to retrain or modify the models.
 
@@ -70,9 +80,9 @@ app.
 ```
 sc-cargo-optimizer/
 ├── ships_cargo_grids.json        # ship + grid definitions
-├── small_gnn_model.pt            # specialized model: ≤64 SCU
-├── medium_gnn_model.pt           # specialized model: 65–256 SCU
-├── large_gnn_model.pt            # specialized model: >256 SCU
+├── small_actor_model.pt          # specialized actor: ≤64 SCU
+├── medium_actor_model.pt         # specialized actor: 65–256 SCU
+├── large_actor_model.pt          # specialized actor: >256 SCU
 ├── frontend/
 │   ├── viewer.html               # Three.js scene + custom drag controls
 │   └── vendor/three/             # Three.js + OrbitControls + DragControls

@@ -347,6 +347,9 @@ let camTween = null;
 let ghostGroup = null;       // drop-preview ghost (edges + footprint)
 let ghostKey = '';
 let clickStart = null;       // pointer-down screen coords, to tell clicks from drags
+let renderFrameId = null;
+const itemGeometryCache = new Map();
+const itemEdgeGeometryCache = new Map();
 
 function gridDims(g) {
   return Array.isArray(g) ? g[0] : g.dimensions;
@@ -397,6 +400,7 @@ function init() {
   orbit.maxPolarAngle = Math.PI / 2 - 0.02;      // never sink below the floor
   orbit.minDistance = 3;
   orbit.maxDistance = 400;
+  orbit.addEventListener('change', requestRender);
   // A user grab takes over from any in-flight camera animation.
   orbit.addEventListener('start', () => { killTween(camTween); camTween = null; });
 
@@ -422,7 +426,7 @@ function init() {
 
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('resize', onResize);
-  animate();
+  requestRender();
 }
 
 // The canvas stays full resolution for readable cargo inspection. Styles can
@@ -511,12 +515,17 @@ function nudgeDelta(key) {
 
 function onResize() {
   applyRenderSize();
+  requestRender();
+}
+
+function requestRender() {
+  if (renderFrameId === null) renderFrameId = requestAnimationFrame(animate);
 }
 
 function animate() {
-  requestAnimationFrame(animate);
+  renderFrameId = null;
   updateTweens();
-  orbit.update();
+  const controlsMoving = orbit.update();
   if (STYLE.pixel && STYLE.renderScale < 1 && pixelPass) {
     renderer.setRenderTarget(pixelPass.target);
     renderer.render(scene, camera);
@@ -525,6 +534,7 @@ function animate() {
   } else {
     renderer.render(scene, camera);
   }
+  if (tweens.length || controlsMoving) requestRender();
 }
 
 // ──── Tiny tween engine (ease-out cubic) for drops, reverts and camera moves ────
@@ -532,6 +542,7 @@ function animate() {
 function addTween({ dur, update, done }) {
   const tw = { t0: performance.now(), dur, update, done, dead: false };
   tweens.push(tw);
+  requestRender();
   return tw;
 }
 
@@ -566,6 +577,7 @@ function updateTweens() {
 function setItemPos(r, pos) {
   r.mesh.position.copy(pos);
   r.edge.position.copy(pos);
+  requestRender();
 }
 
 function tweenItemTo(r, target, dur, done) {
@@ -592,27 +604,62 @@ function smoothCamTo(pos, target, dur = 450) {
   });
 }
 
+function disposeMaterial(material, disposeTextures = true) {
+  if (!material) return;
+  if (disposeTextures) {
+    for (const key of Object.keys(material)) {
+      const value = material[key];
+      if (value && value.isTexture) value.dispose();
+    }
+  }
+  material.dispose();
+}
+
+function disposeObjectResources(root) {
+  if (!root) return;
+  root.traverse(obj => {
+    if (obj.geometry) obj.geometry.dispose();
+    const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+    for (const material of materials) disposeMaterial(material);
+  });
+}
+
+function disposeGhost() {
+  if (!ghostGroup) return;
+  scene.remove(ghostGroup);
+  disposeObjectResources(ghostGroup);
+  ghostGroup = null;
+  ghostKey = '';
+}
+
 function clearScene() {
   for (const r of itemMeshes) {
     cancelItemTween(r);
     scene.remove(r.mesh);
     if (r.edge) scene.remove(r.edge);
+    for (const material of new Set(r.mats || [])) disposeMaterial(material, false);
+    if (r.edge) disposeMaterial(r.edge.material, false);
   }
   for (const r of blockerMeshes) {
     scene.remove(r.mesh);
-    if (r.edge) scene.remove(r.edge);
+    disposeObjectResources(r.mesh);
   }
-  for (const m of gridMeshes) scene.remove(m);
-  for (const m of gridHelpers) scene.remove(m);
-  if (workspaceFloor) { scene.remove(workspaceFloor); workspaceFloor = null; }
-  if (stagingZone) { scene.remove(stagingZone); stagingZone = null; }
-  if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; ghostKey = ''; }
+  for (const m of gridMeshes) { scene.remove(m); disposeObjectResources(m); }
+  for (const m of gridHelpers) { scene.remove(m); disposeObjectResources(m); }
+  if (workspaceFloor) {
+    scene.remove(workspaceFloor); disposeObjectResources(workspaceFloor); workspaceFloor = null;
+  }
+  if (stagingZone) {
+    scene.remove(stagingZone); disposeObjectResources(stagingZone); stagingZone = null;
+  }
+  disposeGhost();
   itemMeshes = []; blockerMeshes = []; gridMeshes = []; gridHelpers = [];
   tweens = [];
   dragState = null;
   selectedRec = null;
   hoverRec = null;
   document.getElementById('info').style.display = 'none';
+  requestRender();
 }
 
 function priorityColor(p) {
@@ -636,7 +683,7 @@ function applyPriorityColors() {
     rebuildItemMaterials(r);
     updateItemVisual(r);
   }
-  if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; ghostKey = ''; }
+  disposeGhost();
 }
 
 function broadcastPriorityColors() {
@@ -709,6 +756,7 @@ window.loadPacking = function(data) {
     // Wireframe box
     const geo = new THREE.BoxGeometry(w, h, l);
     const edges = new THREE.EdgesGeometry(geo);
+    geo.dispose();
     const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: PAL.wire }));
     line.position.set(o.x + w/2, o.y + h/2, o.z + l/2);
     line.userData.role = 'wire';
@@ -911,14 +959,30 @@ function scuDimsFromType(scu) {
   return map[scu];
 }
 
+function cachedItemGeometry(dims) {
+  const key = dims.join('x');
+  if (!itemGeometryCache.has(key)) {
+    const [dw, dl, dh] = dims;
+    itemGeometryCache.set(key, new THREE.BoxGeometry(dw, dh, dl));
+  }
+  return itemGeometryCache.get(key);
+}
+
+function cachedItemEdgeGeometry(dims) {
+  const key = dims.join('x');
+  if (!itemEdgeGeometryCache.has(key)) {
+    itemEdgeGeometryCache.set(key, new THREE.EdgesGeometry(cachedItemGeometry(dims)));
+  }
+  return itemEdgeGeometryCache.get(key);
+}
+
 function addItemMesh({ dims, position, gridCenter, info, unplaced }) {
-  const [dw, dl, dh] = dims;
-  const geom = new THREE.BoxGeometry(dw, dh, dl);
+  const geom = cachedItemGeometry(dims);
   const mesh = new THREE.Mesh(geom, new THREE.MeshStandardMaterial());
   mesh.position.copy(position);
   scene.add(mesh);
 
-  const edgeGeo = new THREE.EdgesGeometry(geom);
+  const edgeGeo = cachedItemEdgeGeometry(dims);
   const edgeMat = new THREE.LineBasicMaterial({
     color: unplaced ? PAL.css.warn : PAL.edgeIn,
     opacity: unplaced ? 0.95 : 0.5,
@@ -1794,9 +1858,10 @@ function rebuildItemMaterials(r) {
     const [gw, gl, gh] = r.geomDims;
     const volume = scuVolumeFromInfo(r.info, r.geomDims);
     const fx = faceTex(gl, gh, volume), fy = faceTex(gw, gl, volume), fz = faceTex(gw, gh, volume);
-    mats = [fx, fx, fy, fy, fz, fz].map(t => new THREE.MeshStandardMaterial({
-      color, map: t, transparent: false, roughness: 0.9, metalness: 0.0,
-    }));
+    const mx = new THREE.MeshStandardMaterial({ color, map: fx, transparent: false, roughness: 0.9, metalness: 0.0 });
+    const my = new THREE.MeshStandardMaterial({ color, map: fy, transparent: false, roughness: 0.9, metalness: 0.0 });
+    const mz = new THREE.MeshStandardMaterial({ color, map: fz, transparent: false, roughness: 0.9, metalness: 0.0 });
+    mats = [mx, mx, my, my, mz, mz];
     r.mesh.material = mats;
   } else {
     const [gw, gl, gh] = r.geomDims;
@@ -1804,13 +1869,14 @@ function rebuildItemMaterials(r) {
     const fx = modernFaceTex(gl, gh, volume, color, 'side');
     const fy = modernFaceTex(gw, gl, volume, color, 'top');
     const fz = modernFaceTex(gw, gh, volume, color, 'front');
-    mats = [fx, fx, fy, fy, fz, fz].map(t => new THREE.MeshStandardMaterial({
-      color: '#ffffff', map: t, transparent: false, roughness: 0.78, metalness: 0.08,
-    }));
+    const mx = new THREE.MeshStandardMaterial({ color: '#ffffff', map: fx, transparent: false, roughness: 0.78, metalness: 0.08 });
+    const my = new THREE.MeshStandardMaterial({ color: '#ffffff', map: fy, transparent: false, roughness: 0.78, metalness: 0.08 });
+    const mz = new THREE.MeshStandardMaterial({ color: '#ffffff', map: fz, transparent: false, roughness: 0.78, metalness: 0.08 });
+    mats = [mx, mx, my, my, mz, mz];
     r.mesh.material = mats;
   }
   r.mats = mats;
-  for (const m of old) if (m && !mats.includes(m)) m.dispose();
+  for (const m of new Set(old)) if (m && !mats.includes(m)) m.dispose();
 }
 
 // Single place that decides an item's emissive highlight + opacity from its
@@ -1833,6 +1899,7 @@ function updateItemVisual(r) {
     mat.opacity = 1.0;
     mat.transparent = false;
   }
+  requestRender();
 }
 
 // ──── Theme switching ─────────────────────────────────────────────────────────
@@ -1871,7 +1938,7 @@ function applyTheme() {
     updateValidity(r);
   }
   for (const b of blockerMeshes) restyleBlocker(b);
-  if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; ghostKey = ''; }
+  disposeGhost();
   renderLegend();
 
   const ss = document.getElementById('styleSelect');
@@ -2002,6 +2069,7 @@ window.resetPositions = function() {
 window.toggleGrid = function() {
   const on = document.getElementById('gridToggle').checked;
   for (const g of gridHelpers) g.visible = on;
+  requestRender();
 };
 
 window.toggleHelp = function() {
@@ -2212,13 +2280,14 @@ function updateDropPreview(r) {
 function ensureGhost(dims) {
   const key = dims.join('x');
   if (ghostGroup && ghostKey === key) return;
-  if (ghostGroup) scene.remove(ghostGroup);
+  disposeGhost();
   const [dw, dl, dh] = dims;
   const geom = new THREE.BoxGeometry(dw, dh, dl);
   const edges = new THREE.LineSegments(
     new THREE.EdgesGeometry(geom),
     new THREE.LineBasicMaterial({ color: PAL.css.good, transparent: true, opacity: 0.9 }),
   );
+  geom.dispose();
   const foot = new THREE.Mesh(
     new THREE.PlaneGeometry(dw, dl),
     new THREE.MeshBasicMaterial({ color: PAL.css.good, transparent: true, opacity: 0.22,
@@ -2241,10 +2310,12 @@ function showGhost(r, pos, valid) {
   const c = valid ? PAL.css.good : PAL.css.bad;
   ghostGroup.userData.edges.material.color.set(c);
   ghostGroup.userData.foot.material.color.set(c);
+  requestRender();
 }
 
 function hideGhost() {
   if (ghostGroup) ghostGroup.visible = false;
+  requestRender();
 }
 
 function onPointerHover(event) {
@@ -2567,6 +2638,7 @@ function updateValidity(r) {
   ];
   // If currently selected, refresh info panel
   if (selectedRec === r) showInfo(r);
+  requestRender();
 }
 
 function onCanvasClick(event) {

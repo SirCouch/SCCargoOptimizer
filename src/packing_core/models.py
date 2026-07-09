@@ -4,8 +4,6 @@ import torch.nn.functional as F
 from torch.distributions import Categorical
 from torch_geometric.nn import global_mean_pool, GATConv
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
 # Node type constants (must match DRLBinPackingEnv)
 NODE_TYPE_CONTAINER = 0
 NODE_TYPE_PLACED = 1
@@ -67,24 +65,24 @@ class ActorGNN(nn.Module):
             nn.Linear(hidden_dim, 2),
         )
 
-    def forward(self, data, feasibility_mask=None):
-        if hasattr(data, 'x') and data.x.device != device:
-            data = data.to(device)
-
+    def action_logits(self, data, feasibility_mask=None):
+        model_device = next(self.parameters()).device
+        if data.x.device != model_device:
+            data = data.to(model_device)
         x = self.backbone(data.x, data.edge_index)
         node_type = data.node_type
 
         mer_mask = (node_type == NODE_TYPE_MER)
         item_mask = (node_type == NODE_TYPE_ITEM)
 
-        if not torch.any(mer_mask):
-            return Categorical(logits=torch.zeros(1, device=x.device))
-
         mer_embeddings = x[mer_mask]  # [num_mers, H]
+        if mer_embeddings.size(0) == 0:
+            return torch.zeros(1, device=x.device)
 
-        if torch.any(item_mask):
+        item_embeddings = x[item_mask]
+        if item_embeddings.size(0) > 0:
             # Cross-attention: item queries, MER keys
-            item_embed = x[item_mask].mean(dim=0, keepdim=True)  # [1, H]
+            item_embed = item_embeddings.mean(dim=0, keepdim=True)  # [1, H]
             query = self.query_proj(item_embed)   # [1, H]
             keys = self.key_proj(mer_embeddings)  # [num_mers, H]
 
@@ -100,10 +98,13 @@ class ActorGNN(nn.Module):
         mer_scores = mer_scores.view(-1)  # [num_mers * 2]
 
         if feasibility_mask is not None:
-            mask_tensor = torch.BoolTensor(feasibility_mask).to(device)
+            mask_tensor = torch.as_tensor(feasibility_mask, dtype=torch.bool, device=mer_scores.device)
             mer_scores = mer_scores.masked_fill(~mask_tensor, float('-inf'))
 
-        return Categorical(logits=mer_scores)
+        return mer_scores
+
+    def forward(self, data, feasibility_mask=None):
+        return Categorical(logits=self.action_logits(data, feasibility_mask))
 
 
 class CriticGNN(nn.Module):
@@ -119,8 +120,9 @@ class CriticGNN(nn.Module):
         )
 
     def forward(self, data):
-        if hasattr(data, 'x') and data.x.device != device:
-            data = data.to(device)
+        model_device = next(self.parameters()).device
+        if data.x.device != model_device:
+            data = data.to(model_device)
 
         x = self.backbone(data.x, data.edge_index)
 
