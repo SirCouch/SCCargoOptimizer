@@ -250,7 +250,10 @@ class DRLBinPackingEnv:
         else:
             self.current_item = None
 
-    def _check_additional_constraints(self, position, dimensions, weight, priority, grid_idx, grid_dims):
+    def _check_additional_constraints(
+        self, position, dimensions, weight, priority, grid_idx, grid_dims,
+        enforce_priority=True,
+    ):
         item_box = Box3D(position, dimensions)
         container_box = Box3D(torch.zeros(3), grid_dims)
         
@@ -265,7 +268,7 @@ class DRLBinPackingEnv:
         if not self._check_stacking_weight(item_box, weight, grid_items):
             return False
 
-        if not self._check_priority_constraint(item_box, priority, grid_items):
+        if enforce_priority and not self._check_priority_constraint(item_box, priority, grid_items):
             return False
 
         if not self._check_support(item_box, grid_items):

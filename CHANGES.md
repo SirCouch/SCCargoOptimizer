@@ -1,5 +1,26 @@
 # Changes
 
+## v0.1.7 - 2026-07-09
+
+### New
+- **Selectable box designs.** Modern mode now exposes all modern cargo-box concepts
+  in the viewer's Boxes selector, and 8-Bit mode adds selectable pixel-art crate
+  variants alongside the classic crate.
+- **Box concept reference page.** Added `frontend/box_concepts.html` as a visual
+  reference for the implemented modern and 8-Bit box styles.
+
+### Fixed
+- **Priority-relaxed packing fallback.** If strict model/MER inference and the
+  deterministic repair scan cannot place an item because of unload-priority ordering,
+  inference now retries with priority relaxed while keeping overlap, support, and
+  stack-weight constraints hard. Diagnostics mark these placements as placed out of
+  priority order instead of leaving cargo behind.
+- **Large cargo ordering.** The big-item tier now sorts by priority before volume
+  inside that tier, so high-priority 32 SCU boxes are considered before lower-priority
+  large boxes.
+- **Theme-consistent splitter resize.** The desktop panel resize handle now uses the
+  same geometry, visible styling, and pane resize bounds in Modern and 8-Bit themes.
+
 ## v0.1.6 - 2026-07-07
 
 ### New

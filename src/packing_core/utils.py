@@ -753,7 +753,7 @@ def load_trained_model(checkpoint_path="enhanced_gnn_model_checkpoint.pt", devic
     return actor, checkpoint
 
 # Function for single inference (for API use)
-def _brute_force_find_placement(env, item_tuple):
+def _brute_force_find_placement(env, item_tuple, enforce_priority=True):
     """Diagnostic: integer-grid scan for any feasible placement of item_tuple.
     Returns (grid_idx, x, y, z, rot) or None."""
     w, l, h, weight, priority = item_tuple
@@ -770,9 +770,21 @@ def _brute_force_find_placement(env, item_tuple):
                     for z in range(gh - ih_i + 1):
                         pos = torch.tensor([float(x), float(y), float(z)])
                         dims = torch.tensor([float(iw_i), float(il_i), float(ih_i)])
-                        if env._check_additional_constraints(pos, dims, weight, priority, grid_idx, grid_dims):
+                        if env._check_additional_constraints(
+                                pos, dims, weight, priority, grid_idx, grid_dims,
+                                enforce_priority=enforce_priority):
                             return (grid_idx, x, y, z, rot, iw_i, il_i, ih_i)
     return None
+
+
+def _find_repair_placement(env, item_tuple):
+    found = _brute_force_find_placement(env, item_tuple, enforce_priority=True)
+    if found is not None:
+        return found, False
+    found = _brute_force_find_placement(env, item_tuple, enforce_priority=False)
+    if found is not None:
+        return found, True
+    return None, False
 
 
 def _skipped_item_info(item_idx, item_tuple):
@@ -811,6 +823,21 @@ def _apply_brute_force_placement(env, item_tuple, found):
     }
 
 
+def _record_repair(diagnostics, skipped_info, repair, reason, priority_relaxed=False):
+    record = {
+        **skipped_info,
+        **repair,
+        "reason": "placed_out_of_priority_order" if priority_relaxed else reason,
+        "trigger_reason": reason,
+        "priority_relaxed": priority_relaxed,
+    }
+    if priority_relaxed:
+        record["note"] = "placed out of priority order"
+        diagnostics["priority_relaxed_placements"].append(record)
+    diagnostics["repaired_placements"].append(record)
+    return record
+
+
 def pack_single_manifest(actor, grids_list, manifest, device=None, diagnose=False):
     """
     Pack a single manifest across multiple grids using the trained model.
@@ -829,7 +856,12 @@ def pack_single_manifest(actor, grids_list, manifest, device=None, diagnose=Fals
     # Reset environment with manifest
     state = env.reset(cargo_manifest=cargo_manifest)
 
-    diagnostics = {"missed_placements": [], "repaired_placements": [], "skipped_items": []}
+    diagnostics = {
+        "missed_placements": [],
+        "repaired_placements": [],
+        "priority_relaxed_placements": [],
+        "skipped_items": [],
+    }
     skipped_indices = []  # actual manifest indices that failed to place
 
     # Run packing
@@ -849,20 +881,21 @@ def pack_single_manifest(actor, grids_list, manifest, device=None, diagnose=Fals
             idx = env.current_item_idx
             item_tuple = cargo_manifest[idx]
             skipped_info = _skipped_item_info(idx, item_tuple)
-            found = _brute_force_find_placement(env, item_tuple)
+            found, priority_relaxed = _find_repair_placement(env, item_tuple)
             if found is not None:
                 repair = _apply_brute_force_placement(env, item_tuple, found)
-                diagnostics["repaired_placements"].append({
-                    **skipped_info,
-                    **repair,
-                    "reason": "no_feasible_mer_action",
-                })
+                _record_repair(
+                    diagnostics, skipped_info, repair,
+                    reason="no_feasible_mer_action",
+                    priority_relaxed=priority_relaxed,
+                )
                 if diagnose:
+                    relaxed_text = " placed out of priority order" if priority_relaxed else ""
                     print(
                         f"[repair] MER MISS: item#{idx} dims={skipped_info['dims']} "
                         f"P{skipped_info['priority']} placed at "
                         f"{repair['feasible_position']} on grid '{repair['grid_name']}' "
-                        f"rot={repair['rotation']}",
+                        f"rot={repair['rotation']}{relaxed_text}",
                         flush=True,
                     )
                 env._move_to_next_item()
@@ -918,21 +951,22 @@ def pack_single_manifest(actor, grids_list, manifest, device=None, diagnose=Fals
         # Detect skip-via-step-failure: item idx advanced but placements didn't
         if env.successful_placements == pre_step_placed and env.current_item_idx > pre_step_idx:
             item_tuple = cargo_manifest[pre_step_idx]
-            found = _brute_force_find_placement(env, item_tuple)
+            found, priority_relaxed = _find_repair_placement(env, item_tuple)
             if found is not None:
                 skipped_info = _skipped_item_info(pre_step_idx, item_tuple)
                 repair = _apply_brute_force_placement(env, item_tuple, found)
-                diagnostics["repaired_placements"].append({
-                    **skipped_info,
-                    **repair,
-                    "reason": info.get("error", "step_rejected_action"),
-                })
+                _record_repair(
+                    diagnostics, skipped_info, repair,
+                    reason=info.get("error", "step_rejected_action"),
+                    priority_relaxed=priority_relaxed,
+                )
                 if diagnose:
+                    relaxed_text = " placed out of priority order" if priority_relaxed else ""
                     print(
                         f"[repair] STEP FAIL: item#{pre_step_idx} dims={skipped_info['dims']} "
                         f"P{skipped_info['priority']} placed at "
                         f"{repair['feasible_position']} on grid '{repair['grid_name']}' "
-                        f"rot={repair['rotation']}",
+                        f"rot={repair['rotation']}{relaxed_text}",
                         flush=True,
                     )
                 state = env._build_graph_state()

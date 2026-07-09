@@ -206,10 +206,9 @@ def manifest_to_item_list(manifest: List[Dict]) -> List[Tuple[float, float, floa
                 priority         # priority
             ))
 
-    # Hybrid sort: items that need to reserve a whole grid go first (largest-first
-    # within that tier); everything else respects priority order so the priority
-    # constraint (higher priority must be at lower Y) never gets blocked by lower-
-    # priority items consuming low-Y rows ahead of them.
+    # Hybrid sort: items that need to reserve a whole grid go first, but priority
+    # still wins inside that tier so low-priority bigs do not consume front rows
+    # before high-priority bigs. Smaller cargo then follows the same rule.
     if item_list:
         # Threshold: 80% of the smallest grid we know about. We don't have grid info
         # in this function, so use absolute SCU thresholds aligned with category
@@ -217,7 +216,7 @@ def manifest_to_item_list(manifest: List[Dict]) -> List[Tuple[float, float, floa
         big_threshold = 25  # any item ≥ 25 SCU is "reserve a grid" sized
         big = [x for x in item_list if (x[0] * x[1] * x[2]) >= big_threshold]
         small = [x for x in item_list if (x[0] * x[1] * x[2]) < big_threshold]
-        big.sort(key=lambda x: (-(x[0] * x[1] * x[2]), x[4]))
+        big.sort(key=lambda x: (x[4], -(x[0] * x[1] * x[2])))
         small.sort(key=lambda x: (x[4], -(x[0] * x[1] * x[2])))
         item_list = big + small
 

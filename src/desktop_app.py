@@ -29,7 +29,7 @@ def _resource_root() -> Path:
 
 APP_ORG = "StarCitizen"
 APP_NAME = "CargoOptimizer"
-APP_VERSION = "0.1.6"
+APP_VERSION = "0.1.7"
 
 
 def _user_data_dir() -> Path:
@@ -55,6 +55,9 @@ SHIPS_FILE = RESOURCE_ROOT / "ships_cargo_grids.json"
 VIEWER_HTML = RESOURCE_ROOT / "frontend" / "viewer.html"
 PRESETS_FILE = _user_data_dir() / "presets.json"
 MAX_PRIORITY = 5
+SPLITTER_HANDLE_WIDTH = 8
+SPLITTER_CARGO_MIN_WIDTH = 320
+SPLITTER_RESULTS_MIN_WIDTH = 360
 
 # App-wide theme palettes. Keys and colors mirror the PALETTES `css` blocks in
 # frontend/viewer.html — keep the two in sync. The viewer broadcasts theme
@@ -137,6 +140,7 @@ def build_qss(style_key, palette_key):
     c["good_lo"] = _mix(p["good"], "#000000", 0.2)
     c["good_dis"] = _mix(p["good"], p["bg"], 0.7)
     c["bad_dim"] = _mix(p["bad"], p["bg"], 0.85)
+    c["splitter_handle"] = f"{SPLITTER_HANDLE_WIDTH}px"
     c["font"] = ('Consolas, "Courier New", monospace' if retro
                  else '"Segoe UI", system-ui, sans-serif')
     # Retro: chunky square corners to match the viewer's 8-bit chrome.
@@ -245,10 +249,14 @@ QTextEdit {{
 }}
 QStatusBar {{ background-color: {surface}; color: {muted}; border-top: 1px solid {border}; }}
 QStatusBar::item {{ border: none; }}
-QSplitter::handle {{ background-color: {btn}; }}
-QSplitter::handle:horizontal {{ width: 3px; }}
-QSplitter::handle:vertical {{ height: 3px; }}
-QSplitter::handle:hover {{ background-color: {accent}; }}
+QSplitter::handle {{
+    background-color: {surface};
+    border: 1px solid {border};
+    border-radius: 3px;
+}}
+QSplitter::handle:horizontal {{ width: {splitter_handle}; margin: 0 3px; }}
+QSplitter::handle:vertical {{ height: {splitter_handle}; margin: 3px 0; }}
+QSplitter::handle:hover {{ background-color: {btn_hover}; border-color: {accent}; }}
 QMessageBox, QInputDialog {{ background-color: {surface}; }}
 QMessageBox QLabel, QInputDialog QLabel {{ color: {fg}; }}
 QScrollBar:vertical {{ background: {bg}; width: 12px; border: none; }}
@@ -600,9 +608,11 @@ class MainWindow(QMainWindow):
 
         # Cargo + viewer split
         self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.setHandleWidth(SPLITTER_HANDLE_WIDTH)
 
         # Cargo pane
         cargo_box = QGroupBox("Cargo Manifest")
+        cargo_box.setMinimumWidth(SPLITTER_CARGO_MIN_WIDTH)
         cargo_layout = QVBoxLayout(cargo_box)
         cargo_layout.setContentsMargins(8, 4, 8, 8)
         cargo_layout.setSpacing(6)
@@ -670,6 +680,7 @@ class MainWindow(QMainWindow):
 
         # Results: 3D View + Summary tabs
         results_tabs = QTabWidget()
+        results_tabs.setMinimumWidth(SPLITTER_RESULTS_MIN_WIDTH)
         self.viewer = QWebEngineView()
         # Viewer settings sync: the page title is used as a small message bus.
         self.viewer.titleChanged.connect(self._on_viewer_title_changed)
@@ -1090,9 +1101,11 @@ class MainWindow(QMainWindow):
             if repaired:
                 lines.append(f"\nFallback placed {len(repaired)} item(s) the model would have skipped:")
                 for r in repaired:
+                    priority_note = " [placed out of priority order]" if r.get("priority_relaxed") else ""
                     lines.append(
                         f"  item#{r['item_idx']} dims={r['dims']} P{r['priority']} "
-                        f"-> placed at {r['feasible_position']} on '{r['grid_name']}' (rot={r['rotation']})"
+                        f"-> placed at {r['feasible_position']} on '{r['grid_name']}' "
+                        f"(rot={r['rotation']}){priority_note}"
                     )
             if missed:
                 lines.append(f"\nMER tracking missed {len(missed)} feasible placement(s):")
