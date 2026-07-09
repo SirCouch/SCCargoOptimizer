@@ -38,3 +38,20 @@ def test_large_grid_single_corner_box_keeps_all_remaining_cells_visible():
 
     assert visible == (12 * 12 * 2) - 1
     assert manager.get_feasible_mers(torch.tensor([1, 1, 1], dtype=torch.float))
+
+
+def test_box_geometry_is_hashable_cpu_integer_data():
+    box = Box3D(torch.tensor([1.0, 2.0, 3.0]), torch.tensor([4.0, 5.0, 6.0]))
+
+    assert box.position == (1, 2, 3)
+    assert box.dimensions == (4, 5, 6)
+    assert box.volume == 120
+    assert len({box, Box3D((1, 2, 3), (4, 5, 6))}) == 1
+
+
+def test_redundant_mer_filter_deduplicates_before_containment():
+    manager = MERManager((8, 8, 8))
+    outer = Box3D((0, 0, 0), (8, 8, 8))
+    inner = Box3D((1, 1, 1), (2, 2, 2))
+
+    assert manager._filter_redundant([inner, outer, outer, inner]) == [outer]

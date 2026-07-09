@@ -1,102 +1,74 @@
-import torch
-from .box3d import Box3D
+from .box3d import Box3D, _integer_triplet
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class MERManager:
-    """Manages the set of Maximal Empty Rectangles in the container.
-    Stores MERs as Box3D objects directly to avoid repeated dict→Box3D conversion."""
+    """Maintain maximal empty rectangular volumes in CPU integer geometry."""
 
     def __init__(self, container_dimensions):
-        self.container = Box3D(
-            position=torch.zeros(3, dtype=torch.float),
-            dimensions=container_dimensions
-        )
-        # Store as Box3D objects directly
-        self.mers = [Box3D(torch.zeros(3, dtype=torch.float), container_dimensions.clone())]
+        dimensions = _integer_triplet(container_dimensions, "container_dimensions")
+        self.container = Box3D((0, 0, 0), dimensions)
+        self.mers = [self.container]
+        self.max_mer_count = 1
+        self.mer_count_total = 1
+        self.update_count = 0
+
+    @property
+    def average_mer_count(self):
+        return self.mer_count_total / (self.update_count + 1)
 
     def update(self, placed_item):
-        """Update MERs after placing a new item."""
-        overlapping = []
+        new_mers = []
         non_overlapping = []
 
         for mer in self.mers:
-            if mer.overlaps(placed_item):
-                overlapping.append(mer)
-            else:
+            if not mer.overlaps(placed_item):
                 non_overlapping.append(mer)
+                continue
 
-        new_mers = []
-        for mer in overlapping:
-            # Up to 6 new MERs (one per face of the placed item)
             if placed_item.x2 < mer.x2:
-                new_mers.append(Box3D(
-                    torch.tensor([placed_item.x2, mer.y1, mer.z1], dtype=torch.float),
-                    torch.tensor([mer.x2 - placed_item.x2, mer.length, mer.height], dtype=torch.float)
-                ))
+                new_mers.append(Box3D.from_bounds(
+                    placed_item.x2, mer.y1, mer.z1, mer.x2, mer.y2, mer.z2))
             if placed_item.x1 > mer.x1:
-                new_mers.append(Box3D(
-                    torch.tensor([mer.x1, mer.y1, mer.z1], dtype=torch.float),
-                    torch.tensor([placed_item.x1 - mer.x1, mer.length, mer.height], dtype=torch.float)
-                ))
+                new_mers.append(Box3D.from_bounds(
+                    mer.x1, mer.y1, mer.z1, placed_item.x1, mer.y2, mer.z2))
             if placed_item.y2 < mer.y2:
-                new_mers.append(Box3D(
-                    torch.tensor([mer.x1, placed_item.y2, mer.z1], dtype=torch.float),
-                    torch.tensor([mer.width, mer.y2 - placed_item.y2, mer.height], dtype=torch.float)
-                ))
+                new_mers.append(Box3D.from_bounds(
+                    mer.x1, placed_item.y2, mer.z1, mer.x2, mer.y2, mer.z2))
             if placed_item.y1 > mer.y1:
-                new_mers.append(Box3D(
-                    torch.tensor([mer.x1, mer.y1, mer.z1], dtype=torch.float),
-                    torch.tensor([mer.width, placed_item.y1 - mer.y1, mer.height], dtype=torch.float)
-                ))
+                new_mers.append(Box3D.from_bounds(
+                    mer.x1, mer.y1, mer.z1, mer.x2, placed_item.y1, mer.z2))
             if placed_item.z2 < mer.z2:
-                new_mers.append(Box3D(
-                    torch.tensor([mer.x1, mer.y1, placed_item.z2], dtype=torch.float),
-                    torch.tensor([mer.width, mer.length, mer.z2 - placed_item.z2], dtype=torch.float)
-                ))
+                new_mers.append(Box3D.from_bounds(
+                    mer.x1, mer.y1, placed_item.z2, mer.x2, mer.y2, mer.z2))
             if placed_item.z1 > mer.z1:
-                new_mers.append(Box3D(
-                    torch.tensor([mer.x1, mer.y1, mer.z1], dtype=torch.float),
-                    torch.tensor([mer.width, mer.length, placed_item.z1 - mer.z1], dtype=torch.float)
-                ))
+                new_mers.append(Box3D.from_bounds(
+                    mer.x1, mer.y1, mer.z1, mer.x2, mer.y2, placed_item.z1))
 
-        candidates = new_mers + non_overlapping
-        self.mers = self._filter_redundant(candidates)
+        self.mers = self._filter_redundant(new_mers + non_overlapping)
+        self.update_count += 1
+        self.mer_count_total += len(self.mers)
+        self.max_mer_count = max(self.max_mer_count, len(self.mers))
         return self.mers
 
     def _filter_redundant(self, boxes):
-        """Filter out redundant MERs (contained within others or too small)."""
-        # 1x1x1 is the smallest packable SCU; any MER below that volume is unusable.
-        min_vol = 1.0
-
+        candidates = sorted(dict.fromkeys(boxes), key=lambda box: box.volume, reverse=True)
         kept = []
-        for i, box_i in enumerate(boxes):
-            if box_i.volume < min_vol:
+        for candidate in candidates:
+            if candidate.volume < 1:
                 continue
-            redundant = False
-            for j, box_j in enumerate(boxes):
-                if i == j or not box_j.contains(box_i):
-                    continue
-                if not box_i.contains(box_j) or j < i:
-                    redundant = True
-                    break
-            if not redundant:
-                kept.append(box_i)
+            if any(container.contains(candidate) for container in kept):
+                continue
+            kept.append(candidate)
         return kept
 
     def get_feasible_mers(self, item_dimensions):
-        """Get indices of MERs that can fit the item in either Z-axis orientation."""
-        feasible = []
-        orientations = [
-            item_dimensions,
-            torch.tensor([item_dimensions[1], item_dimensions[0], item_dimensions[2]], dtype=torch.float)
+        dimensions = _integer_triplet(item_dimensions, "item_dimensions")
+        orientations = {dimensions, (dimensions[1], dimensions[0], dimensions[2])}
+        return [
+            index
+            for index, mer in enumerate(self.mers)
+            if any(mer.can_fit(orientation) for orientation in orientations)
         ]
-        for i, mer in enumerate(self.mers):
-            for orientation in orientations:
-                if mer.can_fit(orientation):
-                    feasible.append(i)
-                    break
-        return feasible
 
     def __len__(self):
         return len(self.mers)

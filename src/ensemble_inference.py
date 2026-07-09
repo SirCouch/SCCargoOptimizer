@@ -1,6 +1,7 @@
 from pathlib import Path
+import os
+import threading
 import torch
-import numpy as np
 from packing_core.grid_utils import total_usable_volume
 from packing_core.utils import load_trained_model, pack_single_manifest
 
@@ -40,10 +41,30 @@ def _resolve_checkpoint(base_path, checkpoint_dir, checkpoint_name):
 
 
 class EnsembleRouter:
-    def __init__(self, small_ckpt="small_gnn_model.pt", medium_ckpt="medium_gnn_model.pt",
-                 large_ckpt="large_gnn_model.pt", base_dir=None, checkpoint_dir=CHECKPOINT_DIR):
+    def __init__(self, small_ckpt="small_actor_model.pt", medium_ckpt="medium_actor_model.pt",
+                 large_ckpt="large_actor_model.pt", base_dir=None, checkpoint_dir=CHECKPOINT_DIR,
+                 device=None, preload=True):
         print("Initializing Specialized Ensemble Router...")
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        requested_device = str(device or os.environ.get("SC_CARGO_MODEL_DEVICE", "cpu")).lower()
+        if requested_device == "auto":
+            requested_device = "cuda" if torch.cuda.is_available() else "cpu"
+        if requested_device == "cuda" and not torch.cuda.is_available():
+            print("CUDA was requested but is unavailable; using CPU inference.")
+            requested_device = "cpu"
+        self.device = torch.device(requested_device)
+        if self.device.type == "cpu":
+            default_threads = min(4, os.cpu_count() or 1)
+            cpu_threads = max(1, int(os.environ.get("SC_CARGO_CPU_THREADS", default_threads)))
+            torch.set_num_threads(cpu_threads)
+            try:
+                torch.set_num_interop_threads(1)
+            except RuntimeError:
+                pass
+        self.preload = preload
+        self._actors = {"small": None, "medium": None, "large": None}
+        self._load_errors = {}
+        self._load_lock = threading.Lock()
+        self._preload_started = False
 
         # Prefer the explicit checkpoints/ folder while keeping root-level
         # checkpoints as a fallback for older source trees and bundles.
@@ -55,33 +76,48 @@ class EnsembleRouter:
             "large": _resolve_checkpoint(base_path, checkpoint_dir, large_ckpt),
         }
 
-        # Load models
-        try:
-            print(f"Loading Small Model from {self.checkpoint_paths['small']}...")
-            self.actor_small, _ = load_trained_model(
-                checkpoint_path=self.checkpoint_paths["small"], device=self.device)
-            print("Small Model Online.")
-        except Exception as e:
-            print(f"Warning: Small Model offline: {e}")
-            self.actor_small = None
+    @property
+    def actor_small(self):
+        return self._actors["small"]
 
-        try:
-            print(f"Loading Medium Model from {self.checkpoint_paths['medium']}...")
-            self.actor_medium, _ = load_trained_model(
-                checkpoint_path=self.checkpoint_paths["medium"], device=self.device)
-            print("Medium Model Online.")
-        except Exception as e:
-            print(f"Warning: Medium Model offline: {e}")
-            self.actor_medium = None
+    @property
+    def actor_medium(self):
+        return self._actors["medium"]
 
-        try:
-            print(f"Loading Large Model from {self.checkpoint_paths['large']}...")
-            self.actor_large, _ = load_trained_model(
-                checkpoint_path=self.checkpoint_paths["large"], device=self.device)
-            print("Large Model Online.")
-        except Exception as e:
-            print(f"Warning: Large Model offline: {e}")
-            self.actor_large = None
+    @property
+    def actor_large(self):
+        return self._actors["large"]
+
+    def _load_actor(self, tier):
+        if self._actors[tier] is not None:
+            return self._actors[tier]
+        with self._load_lock:
+            if self._actors[tier] is not None:
+                return self._actors[tier]
+            if tier in self._load_errors:
+                return None
+            try:
+                print(f"Loading {tier.title()} Model from {self.checkpoint_paths[tier]}...")
+                actor, _checkpoint = load_trained_model(
+                    checkpoint_path=self.checkpoint_paths[tier], device=self.device)
+                self._actors[tier] = actor
+                print(f"{tier.title()} Model Online.")
+            except Exception as exc:
+                self._load_errors[tier] = exc
+                print(f"Warning: {tier.title()} Model offline: {exc}")
+        return self._actors[tier]
+
+    def _start_preload(self, selected_tier):
+        if not self.preload or self._preload_started:
+            return
+        self._preload_started = True
+
+        def load_remaining():
+            for tier in ("small", "medium", "large"):
+                if tier != selected_tier:
+                    self._load_actor(tier)
+
+        threading.Thread(target=load_remaining, name="model-preloader", daemon=True).start()
 
     def route_manifest(self, ship_grids, manifest, diagnose=False):
         """
@@ -91,23 +127,25 @@ class EnsembleRouter:
 
         print(f"Incoming Ship Usable Volume: {total_vol:g} SCU. Routing to specialized model...")
 
-        # Select model based on breakpoints
-        if total_vol <= 64 and self.actor_small is not None:
-            print("Routed to: SMALL MODEL")
-            selected_actor = self.actor_small
-        elif total_vol <= 256 and self.actor_medium is not None:
-            print("Routed to: MEDIUM MODEL")
-            selected_actor = self.actor_medium
-        elif self.actor_large is not None:
-            print("Routed to: LARGE MODEL")
-            selected_actor = self.actor_large
+        if total_vol <= 64:
+            selected_tier = "small"
+        elif total_vol <= 256:
+            selected_tier = "medium"
         else:
-            # Fallback
+            selected_tier = "large"
+
+        selected_actor = self._load_actor(selected_tier)
+        if selected_actor is None:
             print("WARNING: Falling back to first available model due to offline specialized models.")
-            selected_actor = self.actor_large or self.actor_medium or self.actor_small
+            for fallback_tier in ("large", "medium", "small"):
+                selected_actor = self._load_actor(fallback_tier)
+                if selected_actor is not None:
+                    selected_tier = fallback_tier
+                    break
 
         if selected_actor is None:
             raise ValueError("All specialized models are offline. Cannot route request.")
 
-        # Run inference using the selected specialist
+        print(f"Routed to: {selected_tier.upper()} MODEL on {self.device.type.upper()}")
+        self._start_preload(selected_tier)
         return pack_single_manifest(selected_actor, ship_grids, manifest, device=self.device, diagnose=diagnose)

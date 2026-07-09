@@ -1,5 +1,37 @@
 # Changes
 
+## v0.1.8 - 2026-07-09
+
+### New
+- **Responsive manifest controls.** Every cargo row now has a dedicated remove
+  button, and the manifest controls, priority selector, status text, and capacity
+  summary compress cleanly when the desktop window is narrowed.
+- **Inference benchmark and checkpoint tools.** Added utilities for benchmarking the
+  packing pipeline, exporting actor-only checkpoints, and smoke-testing the desktop
+  and viewer experiences.
+
+### Changed
+- **CPU-first inference engine.** Geometry now stays in compact CPU integer data
+  structures while only completed graph tensors are sent to the model. Inference
+  uses occupancy-backed collision and support checks, cached resolved actions,
+  incremental graph state, direct masked-logit selection, and actor-only specialist
+  checkpoints loaded on demand.
+- **Faster MER and repair processing.** MER pruning deduplicates boxes before ordered
+  containment checks, and deterministic repair evaluates face, floor, and MER-corner
+  candidates instead of exhaustively scanning every cell against every placed item.
+- **Efficient viewer rendering.** The 3D viewer renders on demand when idle, reuses
+  cargo geometry, and disposes scene resources when clearing repeated runs.
+- **CPU release packaging.** The packaged app explicitly uses the CPU PyTorch build
+  and bundles the compact small, medium, and large actor checkpoints.
+
+### Fixed
+- **Large-manifest truncation.** Packing is now bounded by the manifest itself rather
+  than fixed 500- or 1,000-step guards, so every submitted cargo item is processed.
+- **Repeated inference work.** Committing a placement no longer recalculates discarded
+  rewards, builds an unused terminal graph, or repeats the feasibility anchor search.
+- **Redundant square rotations.** Square-footprint cargo disables its duplicate
+  rotation action.
+
 ## v0.1.7 - 2026-07-09
 
 ### New

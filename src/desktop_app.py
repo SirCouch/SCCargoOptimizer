@@ -6,12 +6,12 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from PySide6.QtCore import Qt, QThread, Signal, QUrl, QSettings, QStandardPaths
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtGui import QFont, QFontMetrics, QIcon
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QComboBox, QPushButton, QTableWidget, QTableWidgetItem, QSpinBox,
     QTextEdit, QSplitter, QMessageBox, QHeaderView, QGroupBox, QStatusBar,
-    QTabWidget, QInputDialog, QToolButton, QSizePolicy, QProgressBar,
+    QTabWidget, QInputDialog, QToolButton, QSizePolicy, QProgressBar, QStyle,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -29,7 +29,7 @@ def _resource_root() -> Path:
 
 APP_ORG = "StarCitizen"
 APP_NAME = "CargoOptimizer"
-APP_VERSION = "0.1.7"
+APP_VERSION = "0.1.8"
 
 
 def _user_data_dir() -> Path:
@@ -201,6 +201,8 @@ QToolButton {{
     border: 1px solid {border}; border-radius: {r4}; padding: 3px 6px;
 }}
 QToolButton:hover {{ background-color: {btn_hover}; }}
+QToolButton#row_remove {{ color: {bad}; border-color: transparent; padding: 2px; }}
+QToolButton#row_remove:hover {{ background-color: {bad_dim}; border-color: {bad}; }}
 QComboBox, QSpinBox, QLineEdit {{
     background-color: {surface}; color: {fg};
     border: 1px solid {border}; border-radius: {r4};
@@ -349,8 +351,45 @@ class PackingWorker(QThread):
             self.failed.emit(f"{e}\n\n{traceback.format_exc()}")
 
 
+class CompressibleLabel(QLabel):
+    """Single-line label that reduces its font before allowing text clipping."""
+
+    def __init__(self, text="", minimum_pixel_size=9, parent=None):
+        self.minimum_pixel_size = minimum_pixel_size
+        self.base_pixel_size = 12
+        self._fitted_pixel_size = None
+        super().__init__(text, parent)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setToolTip(text)
+
+    def setText(self, text):
+        super().setText(text)
+        self.setToolTip(text)
+        self._fit_text()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_text()
+
+    def _fit_text(self):
+        available = self.contentsRect().width()
+        if available <= 0:
+            return
+        font = QFont(self.font())
+        pixel_size = self.base_pixel_size
+        while pixel_size > self.minimum_pixel_size:
+            font.setPixelSize(pixel_size)
+            if QFontMetrics(font).horizontalAdvance(self.text()) <= available:
+                break
+            pixel_size -= 1
+        if pixel_size != self._fitted_pixel_size:
+            self._fitted_pixel_size = pixel_size
+            self.setStyleSheet(f"font-size: {pixel_size}px;")
+
+
 class CargoTable(QTableWidget):
-    COLUMNS = ["SCU Type", "Qty", "Priority", "Volume"]
+    COLUMNS = ["SCU Type", "Qty", "P", "Volume", ""]
     capacity_changed = Signal()
 
     def __init__(self):
@@ -360,9 +399,13 @@ class CargoTable(QTableWidget):
         self.setAlternatingRowColors(True)
         h = self.horizontalHeader()
         h.setSectionResizeMode(0, QHeaderView.Stretch)
-        h.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        h.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        h.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        for column in range(1, 5):
+            h.setSectionResizeMode(column, QHeaderView.Fixed)
+        self.setColumnWidth(1, 48)
+        self.setColumnWidth(2, 48)
+        self.setColumnWidth(3, 62)
+        self.setColumnWidth(4, 30)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.verticalHeader().setDefaultSectionSize(36)
         self.verticalHeader().setVisible(False)
 
@@ -373,12 +416,15 @@ class CargoTable(QTableWidget):
         combo = QComboBox()
         combo.addItems(list(SCU_DEFINITIONS.keys()))
         combo.setCurrentText(scu_type)
+        combo.setMinimumWidth(0)
+        combo.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         combo.currentTextChanged.connect(self._on_row_changed)
         self.setCellWidget(row, 0, combo)
 
         qty_spin = QSpinBox()
         qty_spin.setRange(1, 999)
         qty_spin.setValue(quantity)
+        qty_spin.setMinimumWidth(0)
         qty_spin.valueChanged.connect(self._on_row_changed)
         self.setCellWidget(row, 1, qty_spin)
 
@@ -386,6 +432,7 @@ class CargoTable(QTableWidget):
         prio_spin.setRange(1, MAX_PRIORITY)
         prio_spin.setValue(priority)
         prio_spin.setPrefix("P")
+        prio_spin.setMinimumWidth(0)
         prio_spin.valueChanged.connect(self._on_row_changed)
         self.setCellWidget(row, 2, prio_spin)
 
@@ -393,9 +440,27 @@ class CargoTable(QTableWidget):
         vol_item.setFlags(Qt.ItemIsEnabled)
         vol_item.setTextAlignment(Qt.AlignCenter)
         self.setItem(row, 3, vol_item)
+
+        remove_btn = QToolButton()
+        remove_btn.setObjectName("row_remove")
+        remove_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+        remove_btn.setToolTip("Remove this cargo row")
+        remove_btn.setAutoRaise(True)
+        remove_btn.setFixedSize(24, 24)
+        remove_btn.clicked.connect(
+            lambda _checked=False, button=remove_btn: self._remove_button_row(button)
+        )
+        self.setCellWidget(row, 4, remove_btn)
         self._update_row_volume(row)
 
         self.capacity_changed.emit()
+
+    def _remove_button_row(self, button):
+        for row in range(self.rowCount()):
+            if self.cellWidget(row, 4) is button:
+                self.removeRow(row)
+                self.capacity_changed.emit()
+                return
 
     def _on_row_changed(self):
         sender = self.sender()
@@ -622,28 +687,18 @@ class MainWindow(QMainWindow):
         self.cargo_table.capacity_changed.connect(self._update_capacity_label)
         cargo_layout.addWidget(self.cargo_table, 1)
 
-        # Toolbar row 1: add/remove/duplicate
-        bar1 = QHBoxLayout()
+        # Compact command grid remains usable at the cargo pane's minimum width.
+        bar1 = QGridLayout()
         bar1.setSpacing(4)
-        add_btn = QPushButton("+ Row")
+        add_btn = QPushButton("Add Row")
         add_btn.clicked.connect(lambda: self.cargo_table.add_row())
-        rm_btn = QPushButton("− Row")
+        rm_btn = QPushButton("Remove Selected")
         rm_btn.clicked.connect(self.cargo_table.remove_selected)
         dup_btn = QPushButton("Duplicate")
         dup_btn.clicked.connect(self.cargo_table.duplicate_selected)
         clear_btn = QPushButton("Clear All")
         clear_btn.setObjectName("danger")
         clear_btn.clicked.connect(self._on_clear_cargo)
-        bar1.addWidget(add_btn)
-        bar1.addWidget(rm_btn)
-        bar1.addWidget(dup_btn)
-        bar1.addStretch()
-        bar1.addWidget(clear_btn)
-        cargo_layout.addLayout(bar1)
-
-        # Toolbar row 2: move up/down + bulk priority
-        bar2 = QHBoxLayout()
-        bar2.setSpacing(4)
         up_btn = QToolButton()
         up_btn.setText("▲")
         up_btn.setToolTip("Move selected rows up")
@@ -652,10 +707,17 @@ class MainWindow(QMainWindow):
         dn_btn.setText("▼")
         dn_btn.setToolTip("Move selected rows down")
         dn_btn.clicked.connect(lambda: self.cargo_table.move_selected(1))
-        bar2.addWidget(up_btn)
-        bar2.addWidget(dn_btn)
-        bar2.addSpacing(10)
-        bar2.addWidget(QLabel("Set Priority:"))
+        bar1.addWidget(add_btn, 0, 0)
+        bar1.addWidget(dup_btn, 0, 1)
+        bar1.addWidget(up_btn, 0, 2)
+        bar1.addWidget(dn_btn, 0, 3)
+        bar1.addWidget(rm_btn, 1, 0, 1, 2)
+        bar1.addWidget(clear_btn, 1, 2, 1, 2)
+        cargo_layout.addLayout(bar1)
+
+        bar2 = QHBoxLayout()
+        bar2.setSpacing(4)
+        bar2.addWidget(QLabel("Set P:"))
         for p in range(1, MAX_PRIORITY + 1):
             b = QToolButton()
             b.setText(f"P{p}")
@@ -663,10 +725,12 @@ class MainWindow(QMainWindow):
             b.clicked.connect(lambda _checked=False, prio=p: self._on_bulk_priority(prio))
             bar2.addWidget(b)
         bar2.addStretch()
-        self.capacity_label = QLabel("Total: 0 SCU")
-        self.capacity_label.setObjectName("capacity_ok")
-        bar2.addWidget(self.capacity_label)
         cargo_layout.addLayout(bar2)
+
+        self.capacity_label = CompressibleLabel("Total: 0 SCU")
+        self.capacity_label.setObjectName("capacity_ok")
+        self.capacity_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        cargo_layout.addWidget(self.capacity_label)
 
         hint = QLabel(
             "Tip: same-priority rows cluster together (easier to unload). "
@@ -721,7 +785,7 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status)
         self.status_dot = QLabel("●")
         self.status_dot.setObjectName("status_dot_loading")
-        self.status_text = QLabel("Loading models…")
+        self.status_text = CompressibleLabel("Loading models…", minimum_pixel_size=8)
         self.status.addWidget(self.status_dot)
         self.status.addWidget(self.status_text, 1)
 
