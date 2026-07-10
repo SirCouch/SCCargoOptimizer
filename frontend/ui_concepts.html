@@ -1,0 +1,962 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>App UI Concepts — SC Cargo Optimizer</title>
+</head>
+<body>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d; --fg: #e6edf3;
+    --muted: #8b949e; --accent: #58a6ff;
+    --mono: Consolas, "SF Mono", "Cascadia Mono", "Courier New", monospace;
+    --sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+
+    /* Mock palette vars — filled by applyPalette() from THEME_PALETTES */
+    --m-bg: #0d1117; --m-border: #30363d; --m-fg: #e6edf3; --m-muted: #8b949e;
+    --m-accent: #58a6ff; --m-warn: #d29922; --m-bad: #f85149; --m-good: #3fb950;
+    --m-btn: #21262d; --m-btnh: #30363d; --m-surface: #171c24;
+    --m-accent-ink: #0d1117; --m-good-ink: #0d1117;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 var(--sans); }
+  header.page { max-width: 1180px; margin: 0 auto; padding: 34px 24px 6px; }
+  header.page h1 { margin: 0 0 6px; font-size: 24px; font-weight: 700; letter-spacing: 0.2px; }
+  header.page p { margin: 0 0 8px; color: var(--muted); max-width: 78ch; }
+  .controls {
+    position: sticky; top: 0; z-index: 5;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--border);
+    margin-top: 18px;
+  }
+  .controls-inner {
+    max-width: 1180px; margin: 0 auto; padding: 10px 24px;
+    display: flex; flex-wrap: wrap; gap: 18px; align-items: center;
+  }
+  .ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .ctl label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .seg { display: flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .seg button {
+    background: var(--panel); color: var(--muted); border: none; padding: 5px 11px;
+    font: 600 12.5px var(--sans); cursor: pointer; display: flex; align-items: center; gap: 6px;
+  }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button.on { background: #22303f; color: var(--fg); }
+  .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .seg .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 8px 24px 80px; }
+  section.concept {
+    margin-top: 34px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--panel); overflow: hidden;
+  }
+  .concept-head { padding: 16px 20px 14px; display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+  .concept-head .tag {
+    font: 700 13px var(--mono); color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 5px; padding: 2px 8px;
+  }
+  .concept-head h2 { margin: 0; font-size: 18px; font-weight: 700; }
+  .concept-head p { margin: 0; color: var(--muted); flex-basis: 100%; max-width: 92ch; }
+  .concept-notes {
+    border-top: 1px solid var(--border); padding: 12px 20px 16px;
+    color: var(--muted); font-size: 13px; max-width: none;
+  }
+  .concept-notes b { color: var(--fg); font-weight: 600; }
+  .group-head { margin: 48px 0 -12px; display: flex; align-items: center; gap: 14px; }
+  .group-head h2 {
+    margin: 0; font-size: 13px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--muted);
+  }
+  .group-head::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  footer.page { max-width: 1180px; margin: 0 auto; padding: 28px 24px 60px; color: var(--muted); font-size: 13.5px; }
+  footer.page code { font-family: var(--mono); font-size: 12.5px; }
+
+  /* ── Shared mock scaffolding ─────────────────────────────────────────────── */
+  .mockwrap { border-top: 1px solid var(--border); padding: 22px; background: #090c10; overflow-x: auto; }
+  .mock {
+    position: relative; width: 100%; min-width: 760px; aspect-ratio: 16 / 10;
+    background: var(--m-bg); color: var(--m-fg);
+    border: 1px solid var(--m-border); border-radius: 8px; overflow: hidden;
+    font: 12px/1.4 var(--sans);
+    box-shadow: 0 18px 48px rgba(0,0,0,0.5);
+  }
+  .mock ::selection { background: var(--m-accent); }
+  .mock .good { color: var(--m-good); } .mock .warn { color: var(--m-warn); }
+  .mock .bad { color: var(--m-bad); } .mock .acc { color: var(--m-accent); }
+  .mock .mut { color: var(--m-muted); }
+  .mock b { font-weight: 700; }
+
+  .capbar { height: 5px; border-radius: 3px; background: var(--m-btn); overflow: hidden; }
+  .capbar i { display: block; height: 100%; background: var(--m-good); border-radius: 3px; }
+  .capbar.warn i { background: var(--m-warn); }
+  .capbar.full i { background: var(--m-bad); }
+
+  .pchip {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 24px; padding: 1px 4px; border-radius: 4px;
+    font: 700 10px var(--mono); color: #fff;
+    background: var(--pc, #555);
+  }
+  .mrow {
+    display: grid; grid-template-columns: 1fr 34px 30px 44px 16px;
+    gap: 6px; align-items: center; padding: 5px 8px;
+    border-bottom: 1px solid color-mix(in srgb, var(--m-border) 55%, transparent);
+    font-size: 11.5px;
+  }
+  .mrow .mtype { font-weight: 600; }
+  .mrow .mqty, .mrow .mvol { color: var(--m-muted); font-family: var(--mono); font-size: 10.5px; text-align: right; }
+  .mrow .mx { color: var(--m-muted); text-align: center; opacity: 0.7; font-size: 10px; }
+  .scene { display: block; width: 100%; height: 100%; }
+  .legend-dots { display: flex; gap: 7px; align-items: center; font: 600 10px var(--mono); color: var(--m-muted); }
+  .legend-dots i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-right: 3px; }
+
+  /* ── Concept 0 — Current layout (reference) ─────────────────────────────── */
+  .mock-cur { display: grid; grid-template-rows: auto 1fr auto auto; gap: 8px; padding: 10px; }
+  .cur-top { display: grid; grid-template-columns: 2fr 2fr 1fr; gap: 8px; }
+  .cur-gb { border: 1px solid var(--m-border); border-radius: 6px; padding: 14px 8px 8px; position: relative; }
+  .cur-gb > label {
+    position: absolute; top: -7px; left: 10px; padding: 0 5px; background: var(--m-bg);
+    color: var(--m-muted); font: 600 10px var(--sans);
+  }
+  .cur-sel {
+    background: var(--m-surface); border: 1px solid var(--m-border); border-radius: 4px;
+    padding: 4px 8px; display: flex; justify-content: space-between; color: var(--m-fg);
+  }
+  .cur-sel + .cur-sel { margin-top: 4px; }
+  .cur-hint { color: var(--m-muted); font-size: 10px; margin-top: 5px; line-height: 1.5; }
+  .cur-btns { display: flex; gap: 4px; margin-top: 5px; }
+  .cur-btns span {
+    flex: 1; text-align: center; background: var(--m-btn); border: 1px solid var(--m-border);
+    border-radius: 4px; padding: 3px 0; font-size: 10.5px;
+  }
+  .cur-main { display: grid; grid-template-columns: 5fr 7fr; gap: 10px; min-height: 0; }
+  .cur-pane { border: 1px solid var(--m-border); border-radius: 6px; padding: 14px 8px 8px; position: relative; display: flex; flex-direction: column; min-height: 0; }
+  .cur-pane > label {
+    position: absolute; top: -7px; left: 10px; padding: 0 5px; background: var(--m-bg);
+    color: var(--m-muted); font: 600 10px var(--sans);
+  }
+  .cur-thead {
+    display: grid; grid-template-columns: 1fr 34px 30px 44px 16px; gap: 6px; padding: 4px 8px;
+    background: var(--m-surface); border: 1px solid var(--m-border); border-bottom: none;
+    border-radius: 4px 4px 0 0; color: var(--m-muted);
+    font: 600 9px var(--sans); text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .cur-tbody { border: 1px solid var(--m-border); border-radius: 0 0 4px 4px; overflow: hidden; flex: 1; min-height: 0; }
+  .cur-total { text-align: right; font-weight: 700; margin-top: 6px; font-size: 11.5px; }
+  .cur-tabs { display: flex; gap: 2px; margin-bottom: -1px; }
+  .cur-tabs span {
+    padding: 4px 14px; border: 1px solid var(--m-border); border-bottom: none;
+    border-radius: 4px 4px 0 0; background: var(--m-surface); color: var(--m-muted); font-size: 10.5px;
+  }
+  .cur-tabs span.on { background: var(--m-bg); color: var(--m-fg); }
+  .cur-viewport { border: 1px solid var(--m-border); border-radius: 0 4px 4px 4px; flex: 1; min-height: 0; position: relative; overflow: hidden; }
+  .cur-optimize {
+    background: var(--m-good); color: var(--m-good-ink); text-align: center;
+    border: 2px solid color-mix(in srgb, var(--m-good) 85%, #fff); border-radius: 6px;
+    padding: 9px 0; font: 800 12.5px var(--sans);
+  }
+  .cur-status {
+    display: flex; gap: 8px; align-items: center; margin: -2px -10px -10px; padding: 5px 12px;
+    background: var(--m-surface); border-top: 1px solid var(--m-border);
+    color: var(--m-muted); font-size: 10.5px;
+  }
+
+  /* ── Concept A — Command Rail ───────────────────────────────────────────── */
+  .mock-a { display: grid; grid-template-columns: 46px 252px 1fr; grid-template-rows: 1fr 26px; }
+  .a-rail {
+    grid-row: 1 / 3; display: flex; flex-direction: column; align-items: center; gap: 8px;
+    background: color-mix(in srgb, var(--m-bg) 55%, var(--m-btn)); border-right: 1px solid var(--m-border);
+    padding: 8px 0;
+  }
+  .a-logo {
+    width: 30px; height: 30px; border-radius: 7px; background: var(--m-accent); color: var(--m-accent-ink);
+    display: grid; place-items: center; font: 800 12px var(--mono); margin-bottom: 6px;
+  }
+  .a-ric {
+    width: 30px; height: 30px; border-radius: 7px; display: grid; place-items: center;
+    color: var(--m-muted); font-size: 14px; border: 1px solid transparent;
+  }
+  .a-ric.on { color: var(--m-fg); background: var(--m-btn); border-color: var(--m-border); }
+  .a-spacer { flex: 1; }
+  .a-side {
+    display: flex; flex-direction: column; min-height: 0;
+    border-right: 1px solid var(--m-border); background: color-mix(in srgb, var(--m-bg) 82%, var(--m-btn));
+  }
+  .a-card { padding: 10px 12px; border-bottom: 1px solid var(--m-border); }
+  .a-lab { font: 700 9px var(--sans); text-transform: uppercase; letter-spacing: 0.12em; color: var(--m-muted); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+  .a-select {
+    background: var(--m-surface); border: 1px solid var(--m-border); border-radius: 6px;
+    padding: 6px 9px; display: flex; justify-content: space-between; font-weight: 600; font-size: 12px;
+  }
+  .a-caprow { display: flex; justify-content: space-between; margin: 8px 0 4px; font: 600 10.5px var(--mono); color: var(--m-muted); }
+  .a-manifest { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px 12px 6px; }
+  .a-badge { background: var(--m-btn); border: 1px solid var(--m-border); border-radius: 8px; padding: 0 7px; font: 700 9.5px var(--mono); color: var(--m-fg); }
+  .a-add { color: var(--m-accent); font: 600 10.5px var(--sans); letter-spacing: 0; text-transform: none; }
+  .a-mrows { flex: 1; min-height: 0; overflow: hidden; margin: 0 -4px; }
+  .a-mrows .mrow { border-radius: 6px; border-bottom: none; margin-bottom: 2px; }
+  .a-mrows .mrow:nth-child(odd) { background: color-mix(in srgb, var(--m-btn) 45%, transparent); }
+  .a-foot { padding: 10px 12px 12px; border-top: 1px solid var(--m-border); display: grid; gap: 6px; }
+  .a-preset {
+    text-align: center; background: var(--m-btn); border: 1px solid var(--m-border); border-radius: 6px;
+    padding: 6px 0; color: var(--m-fg); font-size: 11.5px;
+  }
+  .a-optimize {
+    background: var(--m-good); color: var(--m-good-ink); text-align: center; border-radius: 6px;
+    padding: 9px 0; font: 800 12px var(--sans); letter-spacing: 0.04em;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--m-good) 60%, #fff) inset;
+  }
+  .a-view { position: relative; min-height: 0; }
+  .a-hud {
+    position: absolute; top: 10px; left: 10px; display: flex; gap: 14px; padding: 7px 12px;
+    background: color-mix(in srgb, var(--m-bg) 88%, transparent); border: 1px solid var(--m-border);
+    border-radius: 6px; font: 600 10.5px var(--mono); color: var(--m-muted); backdrop-filter: blur(4px);
+  }
+  .a-hud b { color: var(--m-fg); }
+  .a-legend {
+    position: absolute; top: 10px; right: 10px; padding: 7px 12px;
+    background: color-mix(in srgb, var(--m-bg) 88%, transparent); border: 1px solid var(--m-border);
+    border-radius: 6px; backdrop-filter: blur(4px);
+  }
+  .a-status {
+    grid-column: 2 / 4; display: flex; gap: 8px; align-items: center; padding: 0 12px;
+    background: color-mix(in srgb, var(--m-bg) 60%, var(--m-btn)); border-top: 1px solid var(--m-border);
+    color: var(--m-muted); font-size: 10.5px;
+  }
+  .a-status .right { margin-left: auto; font-family: var(--mono); font-size: 10px; }
+
+  /* ── Concept B — Overlay HUD ────────────────────────────────────────────── */
+  .mock-b .b-scene { position: absolute; inset: 0; }
+  .b-glass {
+    position: absolute; background: color-mix(in srgb, var(--m-bg) 78%, transparent);
+    border: 1px solid color-mix(in srgb, var(--m-border) 80%, var(--m-fg) 6%);
+    border-radius: 10px; backdrop-filter: blur(8px);
+    box-shadow: 0 8px 26px rgba(0,0,0,0.35);
+  }
+  .b-topbar {
+    top: 10px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 18px; align-items: center; padding: 6px 16px; border-radius: 999px;
+    font: 600 10.5px var(--mono); color: var(--m-muted); white-space: nowrap;
+  }
+  .b-topbar b { color: var(--m-fg); }
+  .b-ship { top: 10px; left: 10px; width: 218px; padding: 10px 12px; }
+  .b-ship .a-lab { margin-bottom: 5px; }
+  .b-drawer { top: 10px; right: 10px; bottom: 56px; width: 236px; display: flex; flex-direction: column; overflow: hidden; }
+  .b-drawer-head {
+    display: flex; align-items: center; justify-content: space-between; padding: 9px 12px;
+    border-bottom: 1px solid var(--m-border);
+    font: 700 10px var(--sans); text-transform: uppercase; letter-spacing: 0.1em; color: var(--m-muted);
+  }
+  .b-drawer-head .pin { color: var(--m-accent); font-size: 11px; }
+  .b-drawer .mrows { flex: 1; overflow: hidden; padding: 4px 6px; }
+  .b-drawer-foot { border-top: 1px solid var(--m-border); padding: 8px 12px; display: flex; justify-content: space-between; font: 600 10.5px var(--mono); }
+  .b-optimize {
+    position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+    background: var(--m-good); color: var(--m-good-ink); border-radius: 999px;
+    padding: 10px 26px; font: 800 12.5px var(--sans); letter-spacing: 0.05em;
+    box-shadow: 0 6px 22px color-mix(in srgb, var(--m-good) 45%, transparent);
+  }
+  .b-controls {
+    left: 10px; bottom: 14px; display: flex; gap: 6px; padding: 6px 8px; border-radius: 999px;
+    font: 600 10px var(--sans); color: var(--m-muted);
+  }
+  .b-controls span { padding: 3px 10px; border-radius: 999px; border: 1px solid transparent; }
+  .b-controls span.on { background: var(--m-btn); color: var(--m-fg); border-color: var(--m-border); }
+  .b-status { right: 10px; bottom: 14px; padding: 7px 12px; border-radius: 999px; font: 600 10px var(--mono); color: var(--m-muted); display: flex; gap: 7px; align-items: center; }
+
+  /* ── Concept C — Dispatch Desk ──────────────────────────────────────────── */
+  .mock-c { display: grid; grid-template-rows: 40px auto 1fr; }
+  .c-appbar {
+    display: flex; align-items: center; gap: 10px; padding: 0 12px;
+    background: color-mix(in srgb, var(--m-bg) 55%, var(--m-btn)); border-bottom: 1px solid var(--m-border);
+  }
+  .c-brand { display: flex; align-items: center; gap: 8px; font: 700 12px var(--sans); margin-right: 6px; }
+  .c-brand i { width: 20px; height: 20px; border-radius: 5px; background: var(--m-accent); display: grid; place-items: center; color: var(--m-accent-ink); font: 800 9px var(--mono); font-style: normal; }
+  .c-pick {
+    display: flex; align-items: center; gap: 7px; background: var(--m-surface);
+    border: 1px solid var(--m-border); border-radius: 6px; padding: 4px 10px; font-size: 11.5px;
+  }
+  .c-pick label { color: var(--m-muted); font: 600 9px var(--sans); text-transform: uppercase; letter-spacing: 0.08em; }
+  .c-appbar .sp { flex: 1; }
+  .c-run {
+    background: var(--m-good); color: var(--m-good-ink); border-radius: 6px; padding: 6px 16px;
+    font: 800 11.5px var(--sans); letter-spacing: 0.03em;
+  }
+  .c-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--m-border); }
+  .c-kpi { background: var(--m-surface); border: 1px solid var(--m-border); border-radius: 8px; padding: 7px 11px 8px; }
+  .c-kpi .k { font: 600 9px var(--sans); text-transform: uppercase; letter-spacing: 0.1em; color: var(--m-muted); }
+  .c-kpi .v { font: 700 15px var(--sans); margin-top: 2px; }
+  .c-kpi .v small { font: 600 10px var(--mono); color: var(--m-muted); }
+  .c-kpi .capbar { margin-top: 5px; }
+  .c-main { display: grid; grid-template-columns: 6fr 8fr; gap: 10px; padding: 10px 12px 12px; min-height: 0; }
+  .c-sheet { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--m-border); border-radius: 8px; overflow: hidden; background: color-mix(in srgb, var(--m-bg) 88%, var(--m-btn)); }
+  .c-sheet-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--m-border); }
+  .c-sheet-head b { font-size: 11.5px; }
+  .c-sheet-head .a-badge { margin-right: auto; }
+  .c-tool { background: var(--m-btn); border: 1px solid var(--m-border); border-radius: 5px; padding: 3px 9px; font-size: 10.5px; color: var(--m-fg); }
+  .c-tool.pri { background: color-mix(in srgb, var(--m-accent) 18%, var(--m-btn)); border-color: color-mix(in srgb, var(--m-accent) 45%, var(--m-border)); }
+  .c-thead {
+    display: grid; grid-template-columns: 1fr 34px 30px 44px 16px; gap: 6px; padding: 5px 10px;
+    background: var(--m-surface); color: var(--m-muted);
+    font: 600 9px var(--sans); text-transform: uppercase; letter-spacing: 0.6px;
+    border-bottom: 1px solid var(--m-border);
+  }
+  .c-sheet .mrows { flex: 1; min-height: 0; overflow: hidden; }
+  .c-sheet .mrow { padding: 6px 10px; }
+  .c-sheet .mrow:nth-child(even) { background: color-mix(in srgb, var(--m-btn) 40%, transparent); }
+  .c-sheet-foot { border-top: 1px solid var(--m-border); padding: 7px 10px; display: flex; justify-content: space-between; align-items: center; font: 600 10.5px var(--mono); color: var(--m-muted); }
+  .c-viewcard { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--m-border); border-radius: 8px; overflow: hidden; }
+  .c-viewtabs { display: flex; align-items: center; background: var(--m-surface); border-bottom: 1px solid var(--m-border); padding: 0 6px; }
+  .c-viewtabs span { padding: 7px 14px; font-size: 11px; color: var(--m-muted); border-bottom: 2px solid transparent; }
+  .c-viewtabs span.on { color: var(--m-fg); border-bottom-color: var(--m-accent); font-weight: 600; }
+  .c-viewtabs .legend-dots { margin-left: auto; padding-right: 8px; }
+  .c-viewport { flex: 1; min-height: 0; position: relative; }
+
+  /* ── Concept D — MobiGlas ───────────────────────────────────────────────── */
+  .mock-d {
+    background:
+      radial-gradient(130% 100% at 50% -20%, color-mix(in srgb, var(--m-accent) 9%, transparent) 0%, transparent 55%),
+      var(--m-bg);
+    font-family: var(--sans); text-transform: uppercase;
+  }
+  .mock-d::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,0.09) 3px 4px);
+  }
+  .d-frame { position: absolute; inset: 10px; display: grid; grid-template-rows: 34px 1fr 34px; gap: 8px; }
+  .d-head { display: flex; align-items: stretch; gap: 8px; }
+  .d-title {
+    display: flex; align-items: center; gap: 10px; padding: 0 18px 0 14px;
+    background: color-mix(in srgb, var(--m-accent) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--m-accent) 55%, transparent);
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 100%, 0 100%);
+    font: 800 12px var(--sans); letter-spacing: 0.14em; color: var(--m-fg);
+  }
+  .d-title i { width: 8px; height: 8px; background: var(--m-accent); font-style: normal; box-shadow: 0 0 8px var(--m-accent); }
+  .d-head .d-stat {
+    display: flex; align-items: center; gap: 7px; padding: 0 14px;
+    border: 1px solid color-mix(in srgb, var(--m-border) 70%, var(--m-accent) 12%);
+    background: color-mix(in srgb, var(--m-bg) 55%, transparent);
+    font: 700 10px var(--mono); letter-spacing: 0.1em; color: var(--m-muted);
+  }
+  .d-head .d-stat b { color: var(--m-accent); text-shadow: 0 0 10px color-mix(in srgb, var(--m-accent) 60%, transparent); font-size: 12px; }
+  .d-head .sp { flex: 1; }
+  .d-body { display: grid; grid-template-columns: 240px 1fr; gap: 8px; min-height: 0; }
+  .d-panel {
+    border: 1px solid color-mix(in srgb, var(--m-accent) 32%, var(--m-border));
+    background: color-mix(in srgb, var(--m-bg) 72%, transparent);
+    clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+    box-shadow: 0 0 24px color-mix(in srgb, var(--m-accent) 10%, transparent) inset;
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .d-plab {
+    padding: 8px 12px 7px; font: 800 9.5px var(--sans); letter-spacing: 0.18em; color: var(--m-accent);
+    border-bottom: 1px solid color-mix(in srgb, var(--m-accent) 30%, transparent);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .d-plab .mut { letter-spacing: 0.06em; }
+  .d-ship { padding: 9px 12px 10px; border-bottom: 1px solid color-mix(in srgb, var(--m-accent) 22%, transparent); }
+  .d-shipname { font: 800 12.5px var(--sans); letter-spacing: 0.06em; display: flex; justify-content: space-between; }
+  .d-caprow { display: flex; justify-content: space-between; margin: 7px 0 4px; font: 700 9.5px var(--mono); color: var(--m-muted); letter-spacing: 0.08em; }
+  .d-panel .mrows { flex: 1; min-height: 0; overflow: hidden; padding: 3px 6px; text-transform: none; }
+  .d-panel .mrow { border-bottom-color: color-mix(in srgb, var(--m-accent) 14%, transparent); }
+  .d-optimize {
+    margin: 9px 10px 12px; padding: 10px 0; text-align: center;
+    background: color-mix(in srgb, var(--m-accent) 22%, transparent);
+    border: 1px solid var(--m-accent);
+    clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+    font: 800 11.5px var(--sans); letter-spacing: 0.22em; color: var(--m-fg);
+    text-shadow: 0 0 12px color-mix(in srgb, var(--m-accent) 80%, transparent);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--m-accent) 28%, transparent);
+  }
+  .d-view { position: relative; min-height: 0; }
+  .d-view .corner { position: absolute; width: 14px; height: 14px; border: 1px solid var(--m-accent); opacity: 0.75; }
+  .d-view .c1 { top: 6px; left: 6px; border-width: 1px 0 0 1px; }
+  .d-view .c2 { top: 6px; right: 6px; border-width: 1px 1px 0 0; }
+  .d-view .c3 { bottom: 6px; left: 6px; border-width: 0 0 1px 1px; }
+  .d-view .c4 { bottom: 6px; right: 6px; border-width: 0 1px 1px 0; }
+  .d-reticle {
+    position: absolute; left: 12px; bottom: 10px; font: 700 9px var(--mono);
+    letter-spacing: 0.12em; color: color-mix(in srgb, var(--m-accent) 80%, var(--m-fg));
+  }
+  .d-foot {
+    display: flex; align-items: center; gap: 14px; padding: 0 14px;
+    border: 1px solid color-mix(in srgb, var(--m-border) 70%, var(--m-accent) 12%);
+    background: color-mix(in srgb, var(--m-bg) 55%, transparent);
+    font: 700 9.5px var(--mono); letter-spacing: 0.12em; color: var(--m-muted);
+  }
+  .d-foot .right { margin-left: auto; }
+
+  /* ── Concept E — 8-Bit Console ──────────────────────────────────────────── */
+  .mock-e { font-family: var(--mono); text-transform: uppercase; border-radius: 0; }
+  .e-frame { position: absolute; inset: 8px; border: 3px solid var(--m-border); display: grid; grid-template-rows: 30px 1fr 40px 22px; }
+  .e-title {
+    display: flex; align-items: center; gap: 10px; padding: 0 10px;
+    background: var(--m-btn); border-bottom: 3px solid var(--m-border);
+    font: 700 11px var(--mono); letter-spacing: 0.08em;
+  }
+  .e-title .blocks { margin-left: auto; display: flex; gap: 4px; }
+  .e-title .blocks span { width: 14px; height: 14px; border: 2px solid var(--m-border); display: grid; place-items: center; font-size: 8px; color: var(--m-muted); }
+  .e-body { display: grid; grid-template-columns: 240px 1fr; min-height: 0; }
+  .e-left { border-right: 3px solid var(--m-border); display: flex; flex-direction: column; min-height: 0; }
+  .e-box { border-bottom: 3px solid var(--m-border); padding: 7px 9px 9px; }
+  .e-lab { font: 700 9px var(--mono); color: var(--m-muted); letter-spacing: 0.14em; margin-bottom: 5px; display: flex; justify-content: space-between; }
+  .e-sel { border: 2px solid var(--m-border); background: var(--m-surface); padding: 4px 8px; display: flex; justify-content: space-between; font-weight: 700; font-size: 11px; }
+  .e-capbar { height: 10px; border: 2px solid var(--m-border); margin-top: 7px; padding: 1px; }
+  .e-capbar i { display: block; height: 100%; width: 97%; background: repeating-linear-gradient(90deg, var(--m-warn) 0 6px, color-mix(in srgb, var(--m-warn) 55%, var(--m-bg)) 6px 8px); }
+  .e-manifest { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 7px 9px; }
+  .e-manifest .mrows { flex: 1; min-height: 0; overflow: hidden; border: 2px solid var(--m-border); text-transform: none; }
+  .e-manifest .mrow { border-bottom: 2px solid color-mix(in srgb, var(--m-border) 70%, transparent); font-family: var(--mono); font-size: 10.5px; }
+  .e-manifest .pchip { border-radius: 0; }
+  .e-view { position: relative; min-height: 0; }
+  .e-view .scene { image-rendering: pixelated; }
+  .e-hud {
+    position: absolute; top: 8px; left: 8px; border: 2px solid var(--m-border);
+    background: var(--m-bg); padding: 5px 9px; font: 700 9.5px var(--mono); letter-spacing: 0.06em;
+    color: var(--m-muted); display: flex; gap: 12px;
+  }
+  .e-hud b { color: var(--m-fg); }
+  .e-optimize {
+    display: grid; place-items: center; margin: 0; border-top: 3px solid var(--m-border);
+    background: var(--m-good); color: var(--m-good-ink);
+    font: 800 13px var(--mono); letter-spacing: 0.2em;
+    box-shadow: inset -4px -4px 0 color-mix(in srgb, var(--m-good) 60%, #000), inset 4px 4px 0 color-mix(in srgb, var(--m-good) 70%, #fff);
+  }
+  .e-status {
+    display: flex; align-items: center; gap: 8px; padding: 0 9px;
+    background: var(--m-btn); border-top: 3px solid var(--m-border);
+    font: 700 9.5px var(--mono); color: var(--m-muted); letter-spacing: 0.08em;
+  }
+  .e-status .cursor { display: inline-block; width: 7px; height: 11px; background: var(--m-fg); animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+
+<header class="page">
+  <h1>App UI concepts</h1>
+  <p><strong>Five directions for the whole application shell</strong> — not just the 3D boxes this time.
+     The reference mockup shows today's layout (top row of Ship / Presets / Theme group boxes, manifest
+     splitter, tabbed viewer, full-width optimize button, status bar). Each concept below rearranges the
+     same real parts: ship + capacity, the manifest editor, presets, the Three.js viewport, metrics, the
+     optimize action, and model status.</p>
+  <p>Every mockup is drawn with the <strong>actual palette values from <code>desktop_app.py</code> /
+     <code>viewer.html</code></strong> — use the palette switcher to see any concept in all eight
+     manufacturer themes (including light Origin). Priority chips and the crates in the fake viewport
+     use the app's default priority colors.</p>
+</header>
+
+<div class="controls">
+  <div class="controls-inner">
+    <div class="ctl">
+      <label id="lbl-pal">Theme palette</label>
+      <div class="seg" role="group" aria-labelledby="lbl-pal" id="palSeg"></div>
+    </div>
+  </div>
+</div>
+
+<main>
+  <div class="group-head"><h2>Reference — the current v0.1.8 layout</h2></div>
+
+  <section class="concept">
+    <div class="concept-head">
+      <span class="tag">Current</span>
+      <h2>Baseline for comparison</h2>
+      <p>Three group boxes across the top, a two-pane splitter (manifest table left, tabbed 3D View /
+         Summary right), a full-width green optimize button, and a status bar. Functional, but the top
+         row costs vertical space, the optimize button is far from the manifest it acts on, and metrics
+         only live in the status line and the Summary tab.</p>
+    </div>
+    <div class="mockwrap">
+      <div class="mock mock-cur">
+        <div class="cur-top">
+          <div class="cur-gb"><label>Ship</label>
+            <div class="cur-sel"><span>Constellation Taurus</span><span class="mut">▾</span></div>
+            <div class="cur-hint"><b class="acc">1</b> grid(s) · <b class="acc">174</b> usable SCU<br>Main Hold: 24×5×6 (174 usable, 546 blocked)</div>
+          </div>
+          <div class="cur-gb"><label>Presets</label>
+            <div class="cur-sel"><span>Trade run — Hurston</span><span class="mut">▾</span></div>
+            <div class="cur-btns"><span>Load</span><span>Save…</span><span class="bad">Delete</span></div>
+          </div>
+          <div class="cur-gb"><label>Theme</label>
+            <div class="cur-sel"><span>Modern</span><span class="mut">▾</span></div>
+            <div class="cur-sel"><span class="palName">Default</span><span class="mut">▾</span></div>
+          </div>
+        </div>
+        <div class="cur-main">
+          <div class="cur-pane"><label>Cargo Manifest</label>
+            <div class="cur-thead"><span>SCU Type</span><span>Qty</span><span>P</span><span>Volume</span><span></span></div>
+            <div class="cur-tbody mrows"></div>
+            <div class="cur-btns"><span>Add Row</span><span>Duplicate</span><span>▲</span><span>▼</span></div>
+            <div class="cur-total warn">Total: 168 / 174 SCU (97%)</div>
+          </div>
+          <div class="cur-pane"><label>Results</label>
+            <div class="cur-tabs"><span class="on">3D View</span><span>Summary</span></div>
+            <div class="cur-viewport"><canvas class="scene"></canvas></div>
+          </div>
+        </div>
+        <div class="cur-optimize">OPTIMIZE PACKING</div>
+        <div class="cur-status"><span class="good">●</span> Models loaded · Ready to optimize</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="group-head"><h2>Concepts A–E — proposed shells</h2></div>
+
+  <section class="concept">
+    <div class="concept-head">
+      <span class="tag">A</span>
+      <h2>Command Rail</h2>
+      <p>Sidebar-first. The top row of group boxes collapses into a slim icon rail plus one side panel
+         that stacks ship, manifest, presets and the optimize action in a single vertical flow — set up
+         the run top-to-bottom, then press the button at the bottom of the same column. The viewer takes
+         everything else, with metrics and the legend floating over it, and the status bar only spans the
+         work area. The rail's extra icons give settings/help a home without stealing space.</p>
+    </div>
+    <div class="mockwrap">
+      <div class="mock mock-a">
+        <div class="a-rail">
+          <div class="a-logo">SC</div>
+          <div class="a-ric on" title="Cargo run">▦</div>
+          <div class="a-ric" title="Presets">▤</div>
+          <div class="a-ric" title="Theme &amp; settings">✦</div>
+          <div class="a-spacer"></div>
+          <div class="a-ric" title="Help">?</div>
+        </div>
+        <div class="a-side">
+          <div class="a-card">
+            <div class="a-lab">Ship <span class="acc" style="letter-spacing:0">174 SCU</span></div>
+            <div class="a-select"><span>Constellation Taurus</span><span class="mut">▾</span></div>
+            <div class="a-caprow"><span>Manifest 168 SCU</span><b class="warn">97%</b></div>
+            <div class="capbar warn"><i style="width:97%"></i></div>
+          </div>
+          <div class="a-manifest">
+            <div class="a-lab">Manifest <span class="a-badge">6 rows · 22 items</span><span class="a-add">+ Add</span></div>
+            <div class="a-mrows mrows"></div>
+          </div>
+          <div class="a-foot">
+            <div class="a-preset">Preset: Trade run — Hurston ▾</div>
+            <div class="a-optimize">▶&nbsp; OPTIMIZE PACKING</div>
+          </div>
+        </div>
+        <div class="a-view">
+          <canvas class="scene"></canvas>
+          <div class="a-hud"><span>SR <b class="good">95.5%</b></span><span>UTIL <b>88.4%</b></span><span class="bad">2 UNPLACED</span></div>
+          <div class="a-legend legend-dots"></div>
+        </div>
+        <div class="a-status"><span class="good">●</span> Models loaded · Done — SR 95.5% · Util 88.4% <span class="right">v0.2.0 · CPU ×4</span></div>
+      </div>
+    </div>
+    <div class="concept-notes"><b>Qt mapping:</b> straightforward — the rail is a fixed-width
+      <code>QToolBar</code>, the side panel is the existing cargo pane plus the ship/preset widgets
+      re-parented into it, and the splitter survives between panel and viewer. Lowest-risk of the five;
+      no change to the viewer page itself.</div>
+  </section>
+
+  <section class="concept">
+    <div class="concept-head">
+      <span class="tag">B</span>
+      <h2>Overlay HUD</h2>
+      <p>Viewer-first: the 3D scene <em>is</em> the app, edge to edge, and every control floats over it
+         as a translucent glass panel — the same language as the viewer's existing HUD and legend, applied
+         to the whole shell. Ship card top-left, a pinnable manifest drawer on the right, live metrics in
+         a top pill, and optimize as a floating action at the bottom center where it never leaves your
+         line of sight. Panels collapse to edge tabs when you want a clean look at the hold.</p>
+    </div>
+    <div class="mockwrap">
+      <div class="mock mock-b">
+        <div class="b-scene"><canvas class="scene"></canvas></div>
+        <div class="b-glass b-topbar"><span>SR <b class="good">95.5%</b></span><span>UTIL <b>88.4%</b></span><span>PLACED <b>42/44</b></span><span class="bad">2 UNPLACED</span></div>
+        <div class="b-glass b-ship">
+          <div class="a-lab">Ship</div>
+          <div class="a-select"><span>Constellation Taurus</span><span class="mut">▾</span></div>
+          <div class="a-caprow"><span>168 / 174 SCU</span><b class="warn">97%</b></div>
+          <div class="capbar warn"><i style="width:97%"></i></div>
+        </div>
+        <div class="b-glass b-drawer">
+          <div class="b-drawer-head">Manifest · 6 rows <span class="pin">⌖ pinned</span></div>
+          <div class="mrows"></div>
+          <div class="b-drawer-foot"><span class="mut">Preset: Trade run ▾</span><span class="warn">168 SCU</span></div>
+        </div>
+        <div class="b-glass b-controls"><span class="on">Modern</span><span class="palName">Default</span><span>Boxes ▾</span><span>?</span></div>
+        <div class="b-optimize">▶&nbsp; OPTIMIZE</div>
+        <div class="b-glass b-status"><span class="good">●</span> READY</div>
+      </div>
+    </div>
+    <div class="concept-notes"><b>Qt mapping:</b> the boldest structural change — the natural build is to
+      move the manifest editor into <code>viewer.html</code> itself and let the Qt window become a thin
+      frame around one <code>QWebEngineView</code> (the title-channel bridge already carries theme and
+      colors both ways). Alternatively Qt widgets can float over the web view, at the cost of fighting
+      native-window compositing.</div>
+  </section>
+
+  <section class="concept">
+    <div class="concept-head">
+      <span class="tag">C</span>
+      <h2>Dispatch Desk</h2>
+      <p>The logistics-software take. One compact app bar replaces all three group boxes: ship and preset
+         pickers inline, optimize as the primary accent action on the right. Under it, a KPI strip keeps
+         capacity, manifest load, success rate and utilization permanently visible instead of buried in
+         the Summary tab. The manifest becomes a proper sheet with a toolbar (add, bulk-priority, clear)
+         and the viewer keeps its tabs, with the priority legend promoted into the tab strip.</p>
+    </div>
+    <div class="mockwrap">
+      <div class="mock mock-c">
+        <div class="c-appbar">
+          <div class="c-brand"><i>SC</i>Cargo Optimizer</div>
+          <div class="c-pick"><label>Ship</label><span>Constellation Taurus</span><span class="mut">▾</span></div>
+          <div class="c-pick"><label>Preset</label><span>Trade run — Hurston</span><span class="mut">▾</span></div>
+          <span class="sp"></span>
+          <span class="mut" style="font-size:10.5px"><span class="good">●</span> Models ready</span>
+          <div class="c-run">▶ Optimize</div>
+        </div>
+        <div class="c-kpis">
+          <div class="c-kpi"><div class="k">Ship capacity</div><div class="v">174 <small>SCU · 1 grid</small></div></div>
+          <div class="c-kpi"><div class="k">Manifest</div><div class="v warn">168 <small>SCU · 97%</small></div><div class="capbar warn"><i style="width:97%"></i></div></div>
+          <div class="c-kpi"><div class="k">Success rate</div><div class="v good">95.5% <small>42/44 placed</small></div></div>
+          <div class="c-kpi"><div class="k">Utilization</div><div class="v">88.4% <small>2 unplaced</small></div></div>
+        </div>
+        <div class="c-main">
+          <div class="c-sheet">
+            <div class="c-sheet-head"><b>Cargo manifest</b><span class="a-badge">6 rows</span><span class="c-tool pri">+ Add row</span><span class="c-tool">Set P ▾</span><span class="c-tool">⧉</span><span class="c-tool bad">✕</span></div>
+            <div class="c-thead"><span>SCU Type</span><span>Qty</span><span>P</span><span>Vol</span><span></span></div>
+            <div class="mrows"></div>
+            <div class="c-sheet-foot"><span>Same-priority rows cluster for easier unloading</span><span class="warn">Σ 168 SCU</span></div>
+          </div>
+          <div class="c-viewcard">
+            <div class="c-viewtabs"><span class="on">3D View</span><span>Summary</span><span>Diagnostics</span><div class="legend-dots"></div></div>
+            <div class="c-viewport"><canvas class="scene"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="concept-notes"><b>Qt mapping:</b> closest to the current code — the app bar is a
+      <code>QToolBar</code> with embedded combos, KPI tiles are plain styled widgets fed by the numbers
+      <code>_on_pack_done</code> already computes, and the manifest/viewer splitter is untouched. Best
+      choice if the goal is a cleaner v0.2 without touching the web side.</div>
+  </section>
+
+  <section class="concept">
+    <div class="concept-head">
+      <span class="tag">D</span>
+      <h2>MobiGlas</h2>
+      <p>The in-universe option: chamfered holographic panels, thin accent-glow borders, uppercase
+         condensed labels and a faint scanline pass — the app reads like a ship terminal rather than a
+         desktop tool. The palette accent drives all the glow, so Drake runs hot orange while RSI glows
+         blue. Metrics sit in the header as instrument readouts, the optimize action is a charged plate
+         at the bottom of the manifest panel, and the viewport gets HUD corner brackets.</p>
+    </div>
+    <div class="mockwrap">
+      <div class="mock mock-d">
+        <div class="d-frame">
+          <div class="d-head">
+            <div class="d-title"><i></i>Cargo Optimizer <span class="mut" style="font-weight:600">// Constellation Taurus</span></div>
+            <span class="sp"></span>
+            <div class="d-stat">SR <b>95.5%</b></div>
+            <div class="d-stat">UTIL <b>88.4%</b></div>
+            <div class="d-stat">LOAD <b class="warn" style="text-shadow:none">168/174</b></div>
+          </div>
+          <div class="d-body">
+            <div class="d-panel">
+              <div class="d-plab">Manifest <span class="mut">6 rows · 22 items</span></div>
+              <div class="d-ship">
+                <div class="d-shipname"><span>Constellation Taurus</span><span class="mut">▾</span></div>
+                <div class="d-caprow"><span>Capacity 174 SCU</span><b class="warn">97%</b></div>
+                <div class="capbar warn"><i style="width:97%"></i></div>
+              </div>
+              <div class="mrows"></div>
+              <div class="d-optimize">▸ Optimize</div>
+            </div>
+            <div class="d-panel d-view">
+              <canvas class="scene"></canvas>
+              <span class="corner c1"></span><span class="corner c2"></span>
+              <span class="corner c3"></span><span class="corner c4"></span>
+              <div class="d-reticle">GRID: MAIN HOLD · 24×5×6 · 2 UNPLACED IN STAGING</div>
+            </div>
+          </div>
+          <div class="d-foot"><span class="good">● SYSTEMS NOMINAL</span><span>MODELS: SMALL/MED/LARGE LOADED</span><span>PRESET: TRADE RUN — HURSTON</span><span class="right">v0.2.0</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="concept-notes"><b>Qt mapping:</b> the chamfers, glow and scanlines are beyond practical
+      QSS — this concept only lands properly if the shell moves into the web layer (see Concept B's
+      architecture). Worth it as the "8-Bit-style sibling" for immersion: it would ship as a third
+      <em>Style</em> next to Modern and 8-Bit rather than replacing them.</div>
+  </section>
+
+  <section class="concept">
+    <div class="concept-head">
+      <span class="tag">E</span>
+      <h2>8-Bit Console</h2>
+      <p>The retro style, finished. Today "8-Bit" squares off corners and swaps the font; this concept
+         commits the whole shell: a chunky double-border frame, DOS-style title bar, dithered capacity
+         gauge, a scene rendered at low resolution and upscaled with hard pixels, and a beveled
+         push-button OPTIMIZE that looks like it clunks. The status line becomes a terminal prompt with
+         a blinking cursor. Same layout skeleton as today, so it stays familiar.</p>
+    </div>
+    <div class="mockwrap">
+      <div class="mock mock-e">
+        <div class="e-frame">
+          <div class="e-title">■ SC CARGO OPTIMIZER v0.2.0 <span class="mut" style="font-weight:600">— CONSTELLATION TAURUS</span>
+            <div class="blocks"><span>_</span><span>□</span><span>✕</span></div>
+          </div>
+          <div class="e-body">
+            <div class="e-left">
+              <div class="e-box">
+                <div class="e-lab">Ship <span class="acc">174 SCU</span></div>
+                <div class="e-sel"><span>CONSTELLATION TAURUS</span><span class="mut">▼</span></div>
+                <div class="e-lab" style="margin:8px 0 0">Load 168/174 <span class="warn">97%</span></div>
+                <div class="e-capbar"><i></i></div>
+              </div>
+              <div class="e-manifest">
+                <div class="e-lab">Manifest [6] <span class="acc">+ADD</span></div>
+                <div class="mrows"></div>
+              </div>
+            </div>
+            <div class="e-view">
+              <canvas class="scene" data-retro="1"></canvas>
+              <div class="e-hud"><span>SR <b class="good">95.5%</b></span><span>UTIL <b>88.4%</b></span><span class="bad">UNPLACED:2</span></div>
+            </div>
+          </div>
+          <div class="e-optimize">[ ▶ OPTIMIZE PACKING ]</div>
+          <div class="e-status">&gt; MODELS LOADED. READY.&nbsp;<span class="cursor"></span><span style="margin-left:auto">PRESET: TRADE-RUN-HURSTON</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="concept-notes"><b>Qt mapping:</b> almost entirely achievable in the existing
+      <code>build_qss()</code> retro branch — thicker borders, the dithered progress chunk, beveled
+      button shadows and the terminal status line are all QSS + a fixed-font label. The pixelated
+      viewport is a small change in <code>viewer.html</code> (render at half resolution with
+      <code>image-rendering: pixelated</code> when the retro style is active).</div>
+  </section>
+</main>
+
+<footer class="page">
+  All mockups are static HTML/CSS drawn with the palette dictionaries from <code>desktop_app.py</code>
+  (<code>THEME_PALETTES</code>) and the default priority colors, so switching the palette above previews
+  each concept exactly as the app would tint it — including the light Origin theme. The crates in every
+  viewport are painted by one shared isometric canvas routine; Concept E renders it at low resolution
+  and upscales for the pixel look. Nothing here is wired into the app yet — pick a direction (or a
+  combination: C's KPI strip works inside A's shell) and it can be implemented next.
+</footer>
+
+<script>
+'use strict';
+
+// ── Palettes: mirror THEME_PALETTES in src/desktop_app.py ───────────────────
+const THEME_PALETTES = {
+  default: { label: 'Default', bg: '#0d1117', border: '#30363d', fg: '#e6edf3', muted: '#8b949e',
+             accent: '#58a6ff', warn: '#d29922', bad: '#f85149', good: '#3fb950',
+             btn: '#21262d', btnh: '#30363d' },
+  drake:   { label: 'Drake', bg: '#120c07', border: '#4a3524', fg: '#f2e7da', muted: '#a68d75',
+             accent: '#ff6a2b', warn: '#e0a33c', bad: '#ff4633', good: '#4fa866',
+             btn: '#251a10', btnh: '#3a2818' },
+  origin:  { label: 'Origin', bg: '#eef1f4', border: '#c3ccd6', fg: '#1c2733', muted: '#5f6b78',
+             accent: '#0289a8', warn: '#9a6700', bad: '#c93a31', good: '#1a7f37',
+             btn: '#ffffff', btnh: '#dfe6ec' },
+  rsi:     { label: 'RSI', bg: '#06121f', border: '#1d4062', fg: '#dcebfa', muted: '#7fa3c4',
+             accent: '#3fb6ff', warn: '#d9a03c', bad: '#ff5d5d', good: '#35d07f',
+             btn: '#0d2438', btnh: '#16334e' },
+  aegis:   { label: 'Aegis', bg: '#0b100d', border: '#2c3b32', fg: '#dde8df', muted: '#8ba392',
+             accent: '#4fd1a5', warn: '#d0a136', bad: '#e5484d', good: '#62c462',
+             btn: '#16211b', btnh: '#24352b' },
+  misc:    { label: 'MISC', bg: '#0c1416', border: '#29444a', fg: '#e2f1f0', muted: '#86a8a6',
+             accent: '#35d0ba', warn: '#d99e35', bad: '#ef476f', good: '#6ede8a',
+             btn: '#12262a', btnh: '#1d3a40' },
+  crusader:{ label: 'Crusader', bg: '#081226', border: '#24406e', fg: '#e8eefc', muted: '#8fa3cc',
+             accent: '#ffa62b', warn: '#dcae4a', bad: '#ff4f58', good: '#43d17c',
+             btn: '#101f3e', btnh: '#1b2f57' },
+  argo:    { label: 'Argo', bg: '#0f0f0d', border: '#4a452c', fg: '#f0eee3', muted: '#a3a08a',
+             accent: '#ffd60a', warn: '#d9a03c', bad: '#ff4438', good: '#7ac74f',
+             btn: '#211f16', btnh: '#35321f' },
+};
+const PRIORITY_COLORS = ['#0072B2', '#E69F00', '#009E73', '#D55E00', '#CC79A7'];
+
+// ── Color helpers (mirrors viewer.html) ─────────────────────────────────────
+function hexToRgb(hex) {
+  const raw = String(hex || '#cccccc').replace('#', '');
+  return { r: parseInt(raw.slice(0, 2), 16), g: parseInt(raw.slice(2, 4), 16), b: parseInt(raw.slice(4, 6), 16) };
+}
+function rgbToHex({ r, g, b }) {
+  const c = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+  return `#${c(r)}${c(g)}${c(b)}`;
+}
+function mixHex(a, b, t) {
+  const A = hexToRgb(a), B = hexToRgb(b);
+  return rgbToHex({ r: A.r + (B.r - A.r) * t, g: A.g + (B.g - A.g) * t, b: A.b + (B.b - A.b) * t });
+}
+function shade(hex, t) { return t >= 0 ? mixHex(hex, '#ffffff', t) : mixHex(hex, '#000000', -t); }
+function luma(hex) { const { r, g, b } = hexToRgb(hex); return 0.299 * r + 0.587 * g + 0.114 * b; }
+function inkOn(hex) { return luma(hex) > 150 ? '#0d1117' : '#ffffff'; }
+
+// ── Shared mock data ─────────────────────────────────────────────────────────
+const MANIFEST = [
+  ['32 SCU', 2, 1, 64], ['16 SCU', 3, 1, 48], ['8 SCU', 4, 2, 32],
+  ['4 SCU', 2, 3, 8], ['2 SCU', 5, 4, 10], ['1 SCU', 6, 5, 6],
+];
+
+function buildManifests() {
+  document.querySelectorAll('.mrows').forEach(el => {
+    el.textContent = '';
+    for (const [type, qty, p, vol] of MANIFEST) {
+      const row = document.createElement('div');
+      row.className = 'mrow';
+      row.innerHTML =
+        `<span class="mtype">${type}</span><span class="mqty">×${qty}</span>` +
+        `<span class="pchip" style="--pc:${PRIORITY_COLORS[p - 1]};color:${inkOn(PRIORITY_COLORS[p - 1])}">P${p}</span>` +
+        `<span class="mvol">${vol}</span><span class="mx">✕</span>`;
+      el.appendChild(row);
+    }
+  });
+  document.querySelectorAll('.legend-dots').forEach(el => {
+    el.innerHTML = PRIORITY_COLORS
+      .map((c, i) => `<span><i style="background:${c}"></i>P${i + 1}</span>`).join('');
+  });
+}
+
+// ── Isometric packed-hold scene ──────────────────────────────────────────────
+// One shared painter for every mock viewport: a floor grid plus a plausible
+// packed arrangement in the five priority colors. Concept E renders the same
+// scene at low resolution and upscales it for the 8-bit look.
+const GRID_W = 8, GRID_D = 4, GRID_H = 3;
+const SCENE_BOXES = [
+  { p: [0, 0, 0], d: [2, 2, 2], c: 0 },
+  { p: [2, 0, 0], d: [2, 2, 2], c: 0 },
+  { p: [0, 2, 0], d: [2, 1, 2], c: 1 },
+  { p: [0, 0, 2], d: [2, 1, 2], c: 1 },
+  { p: [4, 0, 0], d: [2, 1, 2], c: 1 },
+  { p: [2, 0, 2], d: [1, 1, 1], c: 2 },
+  { p: [3, 0, 2], d: [1, 1, 1], c: 2 },
+  { p: [6, 0, 0], d: [2, 2, 2], c: 2 },
+  { p: [4, 1, 0], d: [2, 1, 1], c: 3 },
+  { p: [4, 0, 2], d: [2, 1, 1], c: 3 },
+  { p: [2, 1, 2], d: [1, 1, 1], c: 4 },
+  { p: [6, 0, 2], d: [1, 1, 1], c: 4 },
+];
+
+function paintScene(g, w, h, pal) {
+  const bgTop = shade(pal.bg, luma(pal.bg) > 150 ? -0.05 : 0.07);
+  const grad = g.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, bgTop);
+  grad.addColorStop(1, pal.bg);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, w, h);
+
+  // Fit the scene bounding volume into the canvas.
+  const proj0 = (x, y, z) => [(x - z) * 0.866, (x + z) * 0.5 - y];
+  const corners = [];
+  for (const x of [0, GRID_W]) for (const y of [0, GRID_H]) for (const z of [0, GRID_D]) {
+    corners.push(proj0(x, y, z));
+  }
+  const xs = corners.map(c => c[0]), ys = corners.map(c => c[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const s = Math.min((w * 0.82) / (maxX - minX), (h * 0.82) / (maxY - minY));
+  const ox = w / 2 - ((minX + maxX) / 2) * s;
+  const oy = h / 2 - ((minY + maxY) / 2) * s;
+  const P = (x, y, z) => {
+    const [px, py] = proj0(x, y, z);
+    return [px * s + ox, py * s + oy];
+  };
+  const quad = pts => {
+    g.beginPath();
+    g.moveTo(...pts[0]);
+    for (let i = 1; i < pts.length; i++) g.lineTo(...pts[i]);
+    g.closePath();
+  };
+
+  // Floor grid.
+  g.lineWidth = 1;
+  g.strokeStyle = mixHex(pal.border, pal.bg, 0.35);
+  for (let i = 0; i <= GRID_W; i++) { quad([P(i, 0, 0), P(i, 0, GRID_D)]); g.stroke(); }
+  for (let k = 0; k <= GRID_D; k++) { quad([P(0, 0, k), P(GRID_W, 0, k)]); g.stroke(); }
+  g.strokeStyle = mixHex(pal.accent, pal.bg, 0.45);
+  quad([P(0, 0, 0), P(GRID_W, 0, 0), P(GRID_W, 0, GRID_D), P(0, 0, GRID_D)]);
+  g.stroke();
+
+  // Boxes, painter's order: far to near, low to high.
+  const boxes = [...SCENE_BOXES].sort((a, b) =>
+    (a.p[0] + a.p[2]) - (b.p[0] + b.p[2]) || a.p[1] - b.p[1]);
+  for (const box of boxes) {
+    const [x, y, z] = box.p, [bw, bh, bd] = box.d;
+    const hex = PRIORITY_COLORS[box.c];
+    const faces = [
+      { pts: [P(x, y, z + bd), P(x + bw, y, z + bd), P(x + bw, y + bh, z + bd), P(x, y + bh, z + bd)], t: -0.06 },
+      { pts: [P(x + bw, y, z), P(x + bw, y, z + bd), P(x + bw, y + bh, z + bd), P(x + bw, y + bh, z)], t: -0.28 },
+      { pts: [P(x, y + bh, z), P(x + bw, y + bh, z), P(x + bw, y + bh, z + bd), P(x, y + bh, z + bd)], t: 0.16 },
+    ];
+    for (const f of faces) {
+      quad(f.pts);
+      g.fillStyle = shade(hex, f.t);
+      g.fill();
+      g.strokeStyle = shade(hex, -0.5);
+      g.lineWidth = 1;
+      g.stroke();
+    }
+  }
+}
+
+function drawScenes() {
+  const pal = THEME_PALETTES[currentPalette];
+  document.querySelectorAll('canvas.scene').forEach(c => {
+    const cw = c.clientWidth, ch = c.clientHeight;
+    if (!cw || !ch) return;
+    if (c.dataset.retro) {
+      const lw = 180, lh = Math.max(60, Math.round(lw * ch / cw));
+      const off = document.createElement('canvas');
+      off.width = lw; off.height = lh;
+      paintScene(off.getContext('2d'), lw, lh, pal);
+      c.width = cw; c.height = ch;
+      const g = c.getContext('2d');
+      g.imageSmoothingEnabled = false;
+      g.drawImage(off, 0, 0, cw, ch);
+    } else {
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      c.width = Math.round(cw * dpr); c.height = Math.round(ch * dpr);
+      const g = c.getContext('2d');
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paintScene(g, cw, ch, pal);
+    }
+  });
+}
+
+// ── Palette switching ────────────────────────────────────────────────────────
+let currentPalette = 'default';
+function applyPalette(key) {
+  currentPalette = key;
+  const p = THEME_PALETTES[key];
+  const r = document.documentElement.style;
+  r.setProperty('--m-bg', p.bg); r.setProperty('--m-border', p.border);
+  r.setProperty('--m-fg', p.fg); r.setProperty('--m-muted', p.muted);
+  r.setProperty('--m-accent', p.accent); r.setProperty('--m-warn', p.warn);
+  r.setProperty('--m-bad', p.bad); r.setProperty('--m-good', p.good);
+  r.setProperty('--m-btn', p.btn); r.setProperty('--m-btnh', p.btnh);
+  r.setProperty('--m-surface', mixHex(p.bg, p.btn, 0.5));
+  r.setProperty('--m-accent-ink', inkOn(p.accent));
+  r.setProperty('--m-good-ink', inkOn(p.good));
+  document.querySelectorAll('.palName').forEach(el => { el.textContent = p.label; });
+  document.querySelectorAll('#palSeg button').forEach(b =>
+    b.classList.toggle('on', b.dataset.pal === key));
+  drawScenes();
+}
+
+const palSeg = document.getElementById('palSeg');
+for (const [key, p] of Object.entries(THEME_PALETTES)) {
+  const b = document.createElement('button');
+  b.dataset.pal = key;
+  b.innerHTML = `<span class="dot" style="background:${p.accent}"></span>${p.label}`;
+  b.addEventListener('click', () => applyPalette(key));
+  palSeg.appendChild(b);
+}
+
+buildManifests();
+const urlPal = new URLSearchParams(location.search).get('pal');
+applyPalette(THEME_PALETTES[urlPal] ? urlPal : 'default');
+let resizeTimer = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(drawScenes, 120);
+});
+</script>
+</body>
+</html>
