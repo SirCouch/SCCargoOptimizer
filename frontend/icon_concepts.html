@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>App Icon Concepts — SC Cargo Optimizer</title>
+</head>
+<body>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d; --fg: #e6edf3;
+    --muted: #8b949e; --accent: #58a6ff;
+    --mono: Consolas, "SF Mono", "Cascadia Mono", "Courier New", monospace;
+    --sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.55 var(--sans);
+  }
+  header.page { max-width: 1180px; margin: 0 auto; padding: 34px 24px 6px; }
+  header.page h1 { margin: 0 0 6px; font-size: 24px; font-weight: 700; letter-spacing: 0.2px; }
+  header.page p { margin: 0; color: var(--muted); max-width: 78ch; }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 8px 24px 80px; }
+  section.concept {
+    margin-top: 34px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--panel); overflow: hidden;
+  }
+  .concept-head { padding: 16px 20px 14px; display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+  .concept-head .tag {
+    font: 700 13px var(--mono); color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 5px; padding: 2px 8px;
+  }
+  .concept-head h2 { margin: 0; font-size: 18px; font-weight: 700; }
+  .concept-head p { margin: 0; color: var(--muted); flex-basis: 100%; max-width: 88ch; }
+
+  .stage {
+    padding: 26px 20px 22px; overflow-x: auto;
+    display: flex; gap: 34px; align-items: flex-end;
+    background: radial-gradient(120% 130% at 50% -10%, #18222e 0%, #0d1117 62%);
+    border-top: 1px solid var(--border);
+  }
+  .sizeCell { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .sizeCell img { display: block; image-rendering: auto; }
+  .sizeCell .cap { font: 600 11.5px var(--mono); color: var(--muted); }
+
+  .strip {
+    display: flex; gap: 22px; align-items: center; flex-wrap: wrap;
+    padding: 14px 20px 18px; border-top: 1px solid var(--border);
+  }
+  .strip .lab { font: 600 11.5px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .chip { display: flex; align-items: center; gap: 10px; border-radius: 8px; padding: 8px 14px; }
+  .chip.dark  { background: #1f2733; }
+  .chip.light { background: #e8ecf1; color: #24292f; }
+  .chip img { display: block; }
+  .chip span { font: 600 13px var(--sans); }
+</style>
+
+<header class="page">
+  <h1>App Icon Concepts</h1>
+  <p>
+    Five directions for the SCCargoOptimizer application icon. Each is a standalone SVG in
+    <code>frontend/icon_concepts/</code>, drawn on a 256&times;256 rounded plate with the same
+    deep-space background and cyan/orange accent palette so they can be compared like-for-like.
+    Each row shows the icon at desktop, taskbar, and tray sizes &mdash; the 32px and 16px cells
+    are the ones that matter for the Windows build. Once a direction is picked, it gets exported
+    to a multi-resolution <code>.ico</code> and wired into <code>app.spec</code>.
+  </p>
+</header>
+
+<main>
+  <section class="concept">
+    <div class="concept-head">
+      <span class="tag">A</span>
+      <h2>Stacked Hold</h2>
+      <p>
+        A tidy isometric stack of mixed-size crates on a glowing cargo-grid pad &mdash; the app's
+        3D viewer in miniature. Orange/cyan/slate crates echo the in-app box textures. Strong,
+        chunky silhouette that survives 16px well.
+      </p>
+    </div>
+    <div class="stage">
+      <div class="sizeCell"><img src="icon_concepts/concept_a_stacked_hold.svg" width="192" height="192" alt="Stacked Hold, 192px"><span class="cap">192</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_a_stacked_hold.svg" width="96" height="96" alt=""><span class="cap">96</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_a_stacked_hold.svg" width="48" height="48" alt=""><span class="cap">48</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_a_stacked_hold.svg" width="32" height="32" alt=""><span class="cap">32</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_a_stacked_hold.svg" width="16" height="16" alt=""><span class="cap">16</span></div>
+    </div>
+    <div class="strip">
+      <span class="lab">In context</span>
+      <div class="chip dark"><img src="icon_concepts/concept_a_stacked_hold.svg" width="24" height="24" alt=""><span>SCCargoOptimizer</span></div>
+      <div class="chip light"><img src="icon_concepts/concept_a_stacked_hold.svg" width="24" height="24" alt=""><span>SCCargoOptimizer</span></div>
+    </div>
+  </section>
+
+  <section class="concept">
+    <div class="concept-head">
+      <span class="tag">B</span>
+      <h2>Last Box In</h2>
+      <p>
+        The optimizer's whole job in one frame: a holographic wireframe hold, nearly packed, with
+        the final crate dropping into the one cell that fits (dashed target on the floor). The most
+        literal "packing solved" story; the wireframe softens at very small sizes.
+      </p>
+    </div>
+    <div class="stage">
+      <div class="sizeCell"><img src="icon_concepts/concept_b_last_box_in.svg" width="192" height="192" alt="Last Box In, 192px"><span class="cap">192</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_b_last_box_in.svg" width="96" height="96" alt=""><span class="cap">96</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_b_last_box_in.svg" width="48" height="48" alt=""><span class="cap">48</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_b_last_box_in.svg" width="32" height="32" alt=""><span class="cap">32</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_b_last_box_in.svg" width="16" height="16" alt=""><span class="cap">16</span></div>
+    </div>
+    <div class="strip">
+      <span class="lab">In context</span>
+      <div class="chip dark"><img src="icon_concepts/concept_b_last_box_in.svg" width="24" height="24" alt=""><span>SCCargoOptimizer</span></div>
+      <div class="chip light"><img src="icon_concepts/concept_b_last_box_in.svg" width="24" height="24" alt=""><span>SCCargoOptimizer</span></div>
+    </div>
+  </section>
+
+  <section class="concept">
+    <div class="concept-head">
+      <span class="tag">C</span>
+      <h2>SCU Crate</h2>
+      <p>
+        A single front-facing SCU crate as a badge: armored panel face, vents, glowing cyan latch
+        and status strip, orange corner clamps. Flat and bold &mdash; the most conventional "app
+        icon" of the set and the most legible at tray size.
+      </p>
+    </div>
+    <div class="stage">
+      <div class="sizeCell"><img src="icon_concepts/concept_c_scu_crate.svg" width="192" height="192" alt="SCU Crate, 192px"><span class="cap">192</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_c_scu_crate.svg" width="96" height="96" alt=""><span class="cap">96</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_c_scu_crate.svg" width="48" height="48" alt=""><span class="cap">48</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_c_scu_crate.svg" width="32" height="32" alt=""><span class="cap">32</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_c_scu_crate.svg" width="16" height="16" alt=""><span class="cap">16</span></div>
+    </div>
+    <div class="strip">
+      <span class="lab">In context</span>
+      <div class="chip dark"><img src="icon_concepts/concept_c_scu_crate.svg" width="24" height="24" alt=""><span>SCCargoOptimizer</span></div>
+      <div class="chip light"><img src="icon_concepts/concept_c_scu_crate.svg" width="24" height="24" alt=""><span>SCCargoOptimizer</span></div>
+    </div>
+  </section>
+
+  <section class="concept">
+    <div class="concept-head">
+      <span class="tag">D</span>
+      <h2>Neural Cargo</h2>
+      <p>
+        A cube drawn as a graph &mdash; cyan nodes on every vertex, one orange decision node in the
+        middle with dotted attention arcs. A nod to the GAT ensemble doing the packing. Most
+        distinctive silhouette in a taskbar full of boxes; least literal about cargo.
+      </p>
+    </div>
+    <div class="stage">
+      <div class="sizeCell"><img src="icon_concepts/concept_d_neural_cargo.svg" width="192" height="192" alt="Neural Cargo, 192px"><span class="cap">192</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_d_neural_cargo.svg" width="96" height="96" alt=""><span class="cap">96</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_d_neural_cargo.svg" width="48" height="48" alt=""><span class="cap">48</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_d_neural_cargo.svg" width="32" height="32" alt=""><span class="cap">32</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_d_neural_cargo.svg" width="16" height="16" alt=""><span class="cap">16</span></div>
+    </div>
+    <div class="strip">
+      <span class="lab">In context</span>
+      <div class="chip dark"><img src="icon_concepts/concept_d_neural_cargo.svg" width="24" height="24" alt=""><span>SCCargoOptimizer</span></div>
+      <div class="chip light"><img src="icon_concepts/concept_d_neural_cargo.svg" width="24" height="24" alt=""><span>SCCargoOptimizer</span></div>
+    </div>
+  </section>
+
+  <section class="concept">
+    <div class="concept-head">
+      <span class="tag">E</span>
+      <h2>Manifest Grid</h2>
+      <p>
+        Top-down cargo grid with tetris-fit blocks and one remaining slot highlighted as the
+        optimal placement (dashed cyan, plus mark). Reads as "optimization" instantly, stays
+        crisp at every size, and mirrors the manifest/grid UI of the app itself.
+      </p>
+    </div>
+    <div class="stage">
+      <div class="sizeCell"><img src="icon_concepts/concept_e_manifest_grid.svg" width="192" height="192" alt="Manifest Grid, 192px"><span class="cap">192</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_e_manifest_grid.svg" width="96" height="96" alt=""><span class="cap">96</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_e_manifest_grid.svg" width="48" height="48" alt=""><span class="cap">48</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_e_manifest_grid.svg" width="32" height="32" alt=""><span class="cap">32</span></div>
+      <div class="sizeCell"><img src="icon_concepts/concept_e_manifest_grid.svg" width="16" height="16" alt=""><span class="cap">16</span></div>
+    </div>
+    <div class="strip">
+      <span class="lab">In context</span>
+      <div class="chip dark"><img src="icon_concepts/concept_e_manifest_grid.svg" width="24" height="24" alt=""><span>SCCargoOptimizer</span></div>
+      <div class="chip light"><img src="icon_concepts/concept_e_manifest_grid.svg" width="24" height="24" alt=""><span>SCCargoOptimizer</span></div>
+    </div>
+  </section>
+</main>
+</body>
+</html>
